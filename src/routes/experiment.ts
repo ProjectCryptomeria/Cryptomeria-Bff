@@ -1,29 +1,35 @@
 import { zValidator } from '@hono/zod-validator';
 import { Hono } from 'hono';
 import { v4 as uuidv4 } from 'uuid';
+import { db } from '../db';
+import { experiments } from '../db/schema';
+import { runner } from '../services/experimentRunner';
 import { RunExperimentRequestSchema } from '../types';
 
 const app = new Hono();
 
-// POST /api/experiment/run
-app.post(
-	'/run',
-	zValidator('json', RunExperimentRequestSchema),
-	async (c) => {
-		const { scenarios } = c.req.valid('json');
+app.post('/run', zValidator('json', RunExperimentRequestSchema), async (c) => {
+	const req = c.req.valid('json');
+	const jobId = uuidv4();
 
-		// TODO: ここで実際の負荷試験ジョブをバックグラウンドで開始する
-		// Phase 1後半で実装: JobQueueへの追加とGWCへのアップロード処理
+	// 1. DBにジョブレコードを作成 (PENDING)
+	db.insert(experiments).values({
+		id: jobId,
+		status: 'PENDING',
+		config: JSON.stringify(req),
+	}).run();
 
-		const jobId = uuidv4();
-		console.log(`[BFF] Experiment Job Started: ${jobId}, Scenarios: ${scenarios.length}`);
+	// 2. 非同期で実行開始 (Fire & Forget)
+	// setImmediateを使うことでレスポンス返却後に処理を回す
+	setImmediate(() => {
+		runner.startJob(jobId, req);
+	});
 
-		return c.json({
-			jobId,
-			message: 'Experiment started',
-			status: 'accepted'
-		}, 202);
-	}
-);
+	return c.json({
+		jobId,
+		message: 'Experiment started',
+		status: 'accepted'
+	}, 202);
+});
 
 export default app;

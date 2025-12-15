@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import app from '../src/index';
+import app from '../src/app';
 import { AllocatorStrategy, TransmitterStrategy } from '../src/types';
 
 describe('Experiment API', () => {

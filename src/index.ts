@@ -1,15 +1,10 @@
-import { Hono } from 'hono';
-import { cors } from 'hono/cors';
-import { logger } from 'hono/logger';
-import experimentRoute from './routes/experiment';
+import { serve } from '@hono/node-server';
+import app from './app';
 
-const app = new Hono();
+const port = 3000;
+console.log(`Server is running on http://localhost:${port}`);
 
-// Middleware
-app.use('*', logger());
-app.use('*', cors());
-
-// Routes
-app.basePath('/api').route('/experiment', experimentRoute);
-
-export default app;
+serve({
+	fetch: app.fetch,
+	port
+});
