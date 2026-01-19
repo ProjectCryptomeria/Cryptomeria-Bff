@@ -1,0 +1,1 @@
+{"version":3,"file":"accounts.d.ts","sourceRoot":"","sources":["../../src/routes/accounts.ts"],"names":[],"mappings":"AAAA;;GAEG;AAEH,OAAO,EAAE,IAAI,EAAE,MAAM,MAAM,CAAC;AAC5B,OAAO,KAAK,EAAE,kBAAkB,EAAE,MAAM,oCAAoC,CAAC;AAI7E;;GAEG;AACH,wBAAgB,oBAAoB,CAAC,kBAAkB,EAAE,kBAAkB,GAAG,IAAI,CAyBjF"}
