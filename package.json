@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "init":"cp .env.example .env"
+    "init": "cp .env.example .env"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
