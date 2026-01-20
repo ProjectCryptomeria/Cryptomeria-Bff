@@ -10,8 +10,11 @@ dotenv.config();
  * 環境変数設定
  * BFFサーバーの設定値を環境変数から読み込む
  */
+
 export interface EnvConfig {
-	/** Bearer token認証用トークン */
+	/** 認証を無効化（開発・ローカル専用） */
+	authDisabled: boolean;
+	/** Bearer token認証用トークン（AUTH_DISABLED=true の場合は空文字でも可） */
 	apiToken: string;
 	/** Kubernetes namespace */
 	k8sNamespace: string;
@@ -34,29 +37,26 @@ export interface EnvConfig {
  * 必須の環境変数が不足している場合はエラーをスロー
  */
 export function loadEnvConfig(): EnvConfig {
-	// process.envから値を取得
+	const authDisabled = process.env.AUTH_DISABLED === 'true';
 	const apiToken = process.env.API_TOKEN;
 	const nodeHost = process.env.NODE_HOST;
 
 	const errors: string[] = [];
 
-	// 必須項目のチェック
-	if (!apiToken) {
-		errors.push('API_TOKEN is required');
+	if (!authDisabled && !apiToken) {
+		errors.push('API_TOKEN is required (set AUTH_DISABLED=true to disable auth)');
 	}
 	if (!nodeHost) {
 		errors.push('NODE_HOST is required');
 	}
 
-	// エラーがある場合はまとめて通知
 	if (errors.length > 0) {
 		throw new Error(`Environment configuration error:\n  - ${errors.join('\n  - ')}`);
 	}
 
-	// 設定オブジェクトを生成して返す
-	// ここに来る時点で必須項目はチェック済みのため、non-null assertion (!) を使用しても安全
 	return {
-		apiToken: apiToken!,
+		authDisabled,
+		apiToken: apiToken ?? '',
 		k8sNamespace: process.env.K8S_NAMESPACE ?? 'cryptomeria',
 		nodeHost: nodeHost!,
 		downstreamTimeoutMs: parseInt(process.env.DOWNSTREAM_TIMEOUT_MS ?? '10000', 10),

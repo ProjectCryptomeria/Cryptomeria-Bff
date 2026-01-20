@@ -1,6 +1,6 @@
 /**
  * Honoアプリケーション
- * 
+ *
  * ルーティング、認証、エラーハンドリングを統合
  */
 
@@ -38,6 +38,12 @@ export function createApp(config: EnvConfig): Hono {
 
 	// 認証ミドルウェア（/api/v1配下）
 	app.use('/api/v1/*', async (c, next) => {
+		// 開発・ローカル用途：認証を無効化
+		if (config.authDisabled) {
+			await next();
+			return;
+		}
+
 		const authHeader = c.req.header('Authorization');
 
 		if (!authHeader) {

@@ -1,6 +1,6 @@
 /**
  * エントリーポイント
- * 
+ *
  * 環境変数を読み込み、サーバーを起動する
  */
 
@@ -27,6 +27,7 @@ async function main(): Promise<void> {
 	console.log(`  - K8S_NAMESPACE: ${config.k8sNamespace}`);
 	console.log(`  - NODE_HOST: ${config.nodeHost}`);
 	console.log(`  - PORT: ${config.port}`);
+	console.log(`  - AUTH_DISABLED: ${config.authDisabled}`);
 	console.log(`  - DOWNSTREAM_TIMEOUT_MS: ${config.downstreamTimeoutMs}`);
 	console.log(`  - MAX_TX_BASE64_CHARS: ${config.maxTxBase64Chars}`);
 	console.log(`  - ENDPOINT_CACHE_TTL_MS: ${config.endpointCacheTtlMs}`);
@@ -56,7 +57,12 @@ async function main(): Promise<void> {
 			console.log('  GET  /api/v1/chains/:chainId/blocks/latest - Get latest block');
 			console.log('  GET  /api/v1/chains/:chainId/blocks/:height - Get block by height');
 			console.log('');
-			console.log('Authentication: Authorization: Bearer <API_TOKEN>');
+
+			if (config.authDisabled) {
+				console.log('Authentication: disabled (AUTH_DISABLED=true)');
+			} else {
+				console.log('Authentication: Authorization: Bearer <API_TOKEN>');
+			}
 		}
 	);
 }
