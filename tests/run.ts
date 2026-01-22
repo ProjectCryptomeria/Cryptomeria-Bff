@@ -6,9 +6,8 @@
  *   npx tsx tests/run.ts health    # 特定カテゴリのみ
  *   npx tsx tests/run.ts --help    # ヘルプ表示
  */
-
 import { getConfig, type TestConfig } from './config.js';
-import { TestCounter, printHeader, printTest, request, hasField } from './utils.js';
+import { TestCounter, hasField, printHeader, printTest, request } from './utils.js';
 
 // 色定義
 const colors = {
@@ -334,7 +333,7 @@ async function main() {
 
 	console.log(`${colors.blue}`);
 	console.log('╔═══════════════════════════════════════════════════════════════════╗');
-	console.log('║         Cryptomeria-Bff API テストスクリプト                       ║');
+	console.log('║         Cryptomeria-Bff API テストスクリプト                      ║');
 	console.log('╚═══════════════════════════════════════════════════════════════════╝');
 	console.log(`${colors.reset}`);
 
