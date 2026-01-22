@@ -10,7 +10,8 @@
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "init": "cp .env.example .env",
-    "test": "tsx tests/run.ts"
+    "test": "tsx tests/run.ts",
+    "port-forward": "bash scripts/port-forward.sh"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

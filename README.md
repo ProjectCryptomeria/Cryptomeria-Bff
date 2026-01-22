@@ -34,6 +34,21 @@ yarn build
 yarn start
 ````
 
+### Devcontainer環境
+
+devcontainer内ではK8s NodePortサービスに直接アクセスできないため、port-forwardが必要です：
+
+```bash
+# ターミナル1: port-forward開始
+yarn port-forward
+
+# ターミナル2: 開発サーバー起動
+yarn dev
+
+# ターミナル3: テスト実行
+yarn test
+```
+
 ## 環境変数
 
 | 変数                      | 必須   | デフォルト         | 説明                                              |
