@@ -30,6 +30,22 @@ export interface EnvConfig {
 	autoDetectNodeHost: boolean;
 	/** サーバーポート */
 	port: number;
+	// ===== Job System Settings =====
+	/** System層の同時実行ジョブ数上限（排他=1） */
+	maxRunningSystemJobs: number;
+	/** Utils層の同時実行ジョブ数上限 */
+	maxRunningUtilsJobs: number;
+	/** バッチ処理の同時実行数上限 */
+	maxConcurrency: number;
+	/** バッチサイズ上限 */
+	maxBatchSize: number;
+	/** ジョブログの最大バイト数（5MB） */
+	jobLogMaxBytes: number;
+	// ===== Blocktime Cache Settings =====
+	/** blocktimeキャッシュTTL（ms） */
+	blocktimeCacheTtlMs: number;
+	/** blocktimeウィンドウ最大値 */
+	blocktimeMaxWindow: number;
 }
 
 /**
@@ -64,6 +80,15 @@ export function loadEnvConfig(): EnvConfig {
 		endpointCacheTtlMs: parseInt(process.env.ENDPOINT_CACHE_TTL_MS ?? '10000', 10),
 		autoDetectNodeHost: process.env.AUTO_DETECT_NODE_HOST === 'true',
 		port: parseInt(process.env.PORT ?? '3000', 10),
+		// Job System Settings
+		maxRunningSystemJobs: parseInt(process.env.MAX_RUNNING_SYSTEM_JOBS ?? '1', 10),
+		maxRunningUtilsJobs: parseInt(process.env.MAX_RUNNING_UTILS_JOBS ?? '10', 10),
+		maxConcurrency: parseInt(process.env.MAX_CONCURRENCY ?? '20', 10),
+		maxBatchSize: parseInt(process.env.MAX_BATCH_SIZE ?? '1000', 10),
+		jobLogMaxBytes: parseInt(process.env.JOB_LOG_MAX_BYTES ?? '5242880', 10), // 5MB
+		// Blocktime Cache Settings
+		blocktimeCacheTtlMs: parseInt(process.env.BLOCKTIME_CACHE_TTL_MS ?? '10000', 10),
+		blocktimeMaxWindow: parseInt(process.env.BLOCKTIME_MAX_WINDOW ?? '2000', 10),
 	};
 }
 

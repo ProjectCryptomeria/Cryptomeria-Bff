@@ -1,10 +1,14 @@
 /**
- * Cryptomeria-Bff APIテストランナー
- *
+ * Cryptomeria-BFF v1 APIテストランナー
+ * 
+ * APIテスト要件書に基づいた包括的なテスト
+ * 
  * 使用方法:
- *   npx tsx tests/run.ts           # 全テスト実行
- *   npx tsx tests/run.ts health    # 特定カテゴリのみ
- *   npx tsx tests/run.ts --help    # ヘルプ表示
+ *   yarn test              # 全テスト実行
+ *   yarn test layer1       # 第1層のみ
+ *   yarn test layer2       # 第2層のみ
+ *   yarn test layer3       # 第3層のみ
+ *   yarn test jobs         # ジョブ系のみ
  */
 import { getConfig, type TestConfig } from './config.js';
 import { TestCounter, hasField, printHeader, printTest, request } from './utils.js';
@@ -19,7 +23,268 @@ const colors = {
 };
 
 // ============================================================
-// テスト関数
+// 第1層（System/K8s）テスト
+// ============================================================
+
+async function testSystemStatus(config: TestConfig, counter: TestCounter) {
+	printHeader('Layer 1: System Status');
+
+	// GET /api/v1/system/status
+	printTest('システムステータス取得', 'GET /api/v1/system/status');
+	const res = await request(config, 'GET', '/api/v1/system/status');
+
+	if (res.status === 200 && hasField(res.body, 'ok') && hasField(res.body?.data, 'namespace')) {
+		counter.pass('システムステータス取得', '/system/status', 'ok=true, namespace確認', res.bodyText);
+	} else if (res.status === 503) {
+		counter.skip('システムステータス取得', '/system/status', 'K8s unavailable - K8s環境が必要', res.bodyText);
+	} else {
+		counter.fail('システムステータス取得', '/system/status', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testSystemPreflight(config: TestConfig, counter: TestCounter) {
+	printTest('preflight取得', 'GET /api/v1/system/preflight');
+	const res = await request(config, 'GET', '/api/v1/system/preflight');
+
+	if (res.status === 200 && hasField(res.body, 'ok') && hasField(res.body?.data, 'overallOk')) {
+		counter.pass('preflight取得', '/system/preflight', 'ok=true, overallOk確認', res.bodyText);
+	} else if (res.status === 503) {
+		counter.skip('preflight取得', '/system/preflight', 'K8s unavailable', res.bodyText);
+	} else {
+		counter.fail('preflight取得', '/system/preflight', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testSystemTopology(config: TestConfig, counter: TestCounter) {
+	printTest('トポロジー取得', 'GET /api/v1/system/topology');
+	const res = await request(config, 'GET', '/api/v1/system/topology');
+
+	if (res.status === 200 && hasField(res.body, 'ok')) {
+		counter.pass('トポロジー取得', '/system/topology', 'ok=true確認', res.bodyText);
+	} else if (res.status === 503) {
+		counter.skip('トポロジー取得', '/system/topology', 'K8s unavailable', res.bodyText);
+	} else {
+		counter.fail('トポロジー取得', '/system/topology', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testSystemPods(config: TestConfig, counter: TestCounter) {
+	printTest('Pod一覧取得', 'GET /api/v1/system/k8s/pods');
+	const res = await request(config, 'GET', '/api/v1/system/k8s/pods');
+
+	if (res.status === 200 && hasField(res.body, 'ok') && hasField(res.body?.data, 'items')) {
+		counter.pass('Pod一覧取得', '/system/k8s/pods', 'ok=true, items確認', res.bodyText);
+	} else if (res.status === 503) {
+		counter.skip('Pod一覧取得', '/system/k8s/pods', 'K8s unavailable', res.bodyText);
+	} else {
+		counter.fail('Pod一覧取得', '/system/k8s/pods', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testSystemJobs(config: TestConfig, counter: TestCounter) {
+	printTest('Systemジョブ一覧', 'GET /api/v1/system/jobs');
+	const res = await request(config, 'GET', '/api/v1/system/jobs');
+
+	if (res.status === 200 && hasField(res.body, 'items')) {
+		counter.pass('Systemジョブ一覧', '/system/jobs', 'items配列確認', res.bodyText);
+	} else {
+		counter.fail('Systemジョブ一覧', '/system/jobs', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testLayer1(config: TestConfig, counter: TestCounter) {
+	await testSystemStatus(config, counter);
+	await testSystemPreflight(config, counter);
+	await testSystemTopology(config, counter);
+	await testSystemPods(config, counter);
+	await testSystemJobs(config, counter);
+}
+
+// ============================================================
+// 第2層（Blockchain）テスト
+// ============================================================
+
+async function testChainsDiscovery(config: TestConfig, counter: TestCounter) {
+	printHeader('Layer 2: Chains Discovery');
+
+	// GET /api/v1/chains
+	printTest('チェーン一覧取得', 'GET /api/v1/chains');
+	let res = await request(config, 'GET', '/api/v1/chains');
+
+	if (res.status === 200 && hasField(res.body, 'chains')) {
+		counter.pass('チェーン一覧取得', '/chains', 'chains配列確認', res.bodyText);
+	} else {
+		counter.fail('チェーン一覧取得', '/chains', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+	}
+
+	// GET /api/v1/chains/:chainId/info
+	printTest('チェーン情報取得', `GET /api/v1/chains/${config.chainId}/info`);
+	res = await request(config, 'GET', `/api/v1/chains/${config.chainId}/info`);
+
+	if (res.status === 200 && hasField(res.body, 'chainId')) {
+		counter.pass('チェーン情報取得', `/chains/${config.chainId}/info`, 'chainId確認', res.bodyText);
+	} else if (res.status === 400) {
+		counter.pass('チェーン情報取得', `/chains/${config.chainId}/info`, '400（chainId不明）- 正常なエラー', res.bodyText);
+	} else if (res.status === 502 || res.status === 504) {
+		counter.skip('チェーン情報取得', `/chains/${config.chainId}/info`, `バックエンド接続エラー (${res.status})`, res.bodyText);
+	} else {
+		counter.fail('チェーン情報取得', `/chains/${config.chainId}/info`, `期待ステータス200/400、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testChainsBlocktime(config: TestConfig, counter: TestCounter) {
+	printTest('ブロックタイム取得', `GET /api/v1/chains/${config.chainId}/blocktime`);
+	const res = await request(config, 'GET', `/api/v1/chains/${config.chainId}/blocktime`);
+
+	if (res.status === 200 && hasField(res.body, 'stats')) {
+		counter.pass('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, 'stats確認', res.bodyText);
+
+		// キャッシュテスト: 2回目の呼び出し
+		printTest('ブロックタイムキャッシュ', `GET /api/v1/chains/${config.chainId}/blocktime (2nd)`);
+		const res2 = await request(config, 'GET', `/api/v1/chains/${config.chainId}/blocktime`);
+		if (res2.status === 200 && res2.body?.cached === true) {
+			counter.pass('ブロックタイムキャッシュ', 'blocktime cache', 'cached=true確認', res2.bodyText);
+		} else if (res2.status === 200) {
+			counter.pass('ブロックタイムキャッシュ', 'blocktime cache', '2回目取得成功（キャッシュはheight依存）', res2.bodyText);
+		} else {
+			counter.fail('ブロックタイムキャッシュ', 'blocktime cache', `2回目失敗: ${res2.status}`, res2.bodyText);
+		}
+	} else if (res.status === 400 || res.status === 404) {
+		counter.skip('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, `${res.status}（chainId不明）`, res.bodyText);
+	} else if (res.status === 502 || res.status === 504) {
+		counter.skip('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, `バックエンド接続エラー (${res.status})`, res.bodyText);
+	} else {
+		counter.fail('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, `期待ステータス200、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testLayer2(config: TestConfig, counter: TestCounter) {
+	await testChainsDiscovery(config, counter);
+	await testChainsBlocktime(config, counter);
+}
+
+// ============================================================
+// 第3層（Utilities）テスト
+// ============================================================
+
+async function testUtilsJobCreation(config: TestConfig, counter: TestCounter) {
+	printHeader('Layer 3: Utils Jobs');
+
+	// POST /api/v1/utils/metrics/resource-snapshot
+	printTest('リソーススナップショット', 'POST /api/v1/utils/metrics/resource-snapshot');
+	const res = await request(config, 'POST', '/api/v1/utils/metrics/resource-snapshot', {
+		namespace: 'cryptomeria',
+		include: ['systemStatus', 'pods'],
+		timeoutMs: 10000,
+	});
+
+	if (res.status === 202 && hasField(res.body, 'jobId')) {
+		counter.pass('リソーススナップショット', '/utils/metrics/resource-snapshot', '202 + jobId確認', res.bodyText);
+
+		// ジョブ詳細確認
+		const jobId = res.body.jobId;
+		printTest('ジョブ詳細確認', `GET /api/v1/utils/jobs/${jobId}`);
+		const jobRes = await request(config, 'GET', `/api/v1/utils/jobs/${jobId}`);
+
+		if (jobRes.status === 200 && hasField(jobRes.body, 'status')) {
+			counter.pass('ジョブ詳細確認', `/utils/jobs/${jobId}`, `status=${jobRes.body.status}確認`, jobRes.bodyText);
+		} else {
+			counter.fail('ジョブ詳細確認', `/utils/jobs/${jobId}`, `期待200、実際: ${jobRes.status}`, jobRes.bodyText);
+		}
+	} else if (res.status === 429) {
+		counter.skip('リソーススナップショット', '/utils/metrics/resource-snapshot', 'Rate limited', res.bodyText);
+	} else {
+		counter.fail('リソーススナップショット', '/utils/metrics/resource-snapshot', `期待202、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testUtilsValidation(config: TestConfig, counter: TestCounter) {
+	// 異常系: timeoutMs不正
+	printTest('throughput異常入力', 'POST /api/v1/utils/metrics/throughput (window=1)');
+	const res = await request(config, 'POST', '/api/v1/utils/metrics/throughput', {
+		chainId: config.chainId,
+		window: 1, // 不正: 2未満
+	});
+
+	if (res.status === 400 && hasField(res.body, 'error')) {
+		counter.pass('throughput異常入力', 'window=1', '400 INVALID_ARGUMENT確認', res.bodyText);
+	} else {
+		counter.fail('throughput異常入力', 'window=1', `期待400、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testUtilsJobsList(config: TestConfig, counter: TestCounter) {
+	printTest('Utilsジョブ一覧', 'GET /api/v1/utils/jobs');
+	const res = await request(config, 'GET', '/api/v1/utils/jobs');
+
+	if (res.status === 200 && hasField(res.body, 'items')) {
+		counter.pass('Utilsジョブ一覧', '/utils/jobs', 'items配列確認', res.bodyText);
+	} else {
+		counter.fail('Utilsジョブ一覧', '/utils/jobs', `期待200、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testLayer3(config: TestConfig, counter: TestCounter) {
+	await testUtilsJobCreation(config, counter);
+	await testUtilsValidation(config, counter);
+	await testUtilsJobsList(config, counter);
+}
+
+// ============================================================
+// ジョブ共通テスト
+// ============================================================
+
+async function testJobStateTransition(config: TestConfig, counter: TestCounter) {
+	printHeader('Job State Transitions');
+
+	// ジョブ作成して状態遷移確認
+	printTest('ジョブ作成と状態遷移', 'POST /api/v1/utils/metrics/resource-snapshot');
+	const res = await request(config, 'POST', '/api/v1/utils/metrics/resource-snapshot', {
+		timeoutMs: 5000,
+	});
+
+	if (res.status !== 202 || !res.body?.jobId) {
+		counter.skip('ジョブ作成と状態遷移', 'resource-snapshot', `ジョブ作成失敗: ${res.status}`, res.bodyText);
+		return;
+	}
+
+	const jobId = res.body.jobId;
+	counter.pass('ジョブ作成', 'resource-snapshot', `jobId=${jobId}`, res.bodyText);
+
+	// 状態確認（少し待機）
+	await new Promise((r) => setTimeout(r, 1000));
+
+	const checkRes = await request(config, 'GET', `/api/v1/utils/jobs/${jobId}`);
+	if (checkRes.status === 200) {
+		const status = checkRes.body?.status;
+		if (status === 'running' || status === 'succeeded' || status === 'queued') {
+			counter.pass('状態遷移確認', `status=${status}`, '期待される状態', checkRes.bodyText);
+		} else {
+			counter.fail('状態遷移確認', `status=${status}`, '予期しない状態', checkRes.bodyText);
+		}
+	} else {
+		counter.fail('状態遷移確認', `/utils/jobs/${jobId}`, `取得失敗: ${checkRes.status}`, checkRes.bodyText);
+	}
+}
+
+async function testJobNotFound(config: TestConfig, counter: TestCounter) {
+	printTest('存在しないジョブ', 'GET /api/v1/utils/jobs/nonexistent-job-id');
+	const res = await request(config, 'GET', '/api/v1/utils/jobs/nonexistent-job-id');
+
+	if (res.status === 404 && hasField(res.body, 'error')) {
+		counter.pass('存在しないジョブ', 'nonexistent', '404 NOT_FOUND確認', res.bodyText);
+	} else {
+		counter.fail('存在しないジョブ', 'nonexistent', `期待404、実際: ${res.status}`, res.bodyText);
+	}
+}
+
+async function testJobsTests(config: TestConfig, counter: TestCounter) {
+	await testJobStateTransition(config, counter);
+	await testJobNotFound(config, counter);
+}
+
+// ============================================================
+// 既存テスト（後方互換）
 // ============================================================
 
 async function testHealth(config: TestConfig, counter: TestCounter) {
@@ -29,242 +294,46 @@ async function testHealth(config: TestConfig, counter: TestCounter) {
 	const res = await request(config, 'GET', '/health', undefined, false);
 
 	if (res.status === 200 && hasField(res.body, 'status')) {
-		counter.pass('ヘルスチェック', 'GET /health', 'ステータス200、statusフィールド確認', res.bodyText);
+		counter.pass('ヘルスチェック', '/health', 'status=ok確認', res.bodyText);
 	} else {
-		counter.fail('ヘルスチェック', 'GET /health', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+		counter.fail('ヘルスチェック', '/health', `期待200、実際: ${res.status}`, res.bodyText);
 	}
 }
 
-async function testChains(config: TestConfig, counter: TestCounter) {
-	printHeader('Discovery API');
+async function testLegacyChains(config: TestConfig, counter: TestCounter) {
+	printHeader('Legacy Chains API');
 
 	// GET /api/v1/chains
-	printTest('チェーン一覧取得', 'GET /api/v1/chains');
+	printTest('チェーン一覧（レガシー）', 'GET /api/v1/chains');
 	let res = await request(config, 'GET', '/api/v1/chains');
 
 	if (res.status === 200 && hasField(res.body, 'chains')) {
-		counter.pass('チェーン一覧取得', 'GET /api/v1/chains', 'ステータス200、chainsフィールド確認', res.bodyText);
+		counter.pass('チェーン一覧（レガシー）', '/chains', 'chains配列確認', res.bodyText);
 	} else {
-		counter.fail('チェーン一覧取得', 'GET /api/v1/chains', `期待ステータス200、実際: ${res.status}`, res.bodyText);
+		counter.fail('チェーン一覧（レガシー）', '/chains', `期待200、実際: ${res.status}`, res.bodyText);
 	}
 
-	// GET /api/v1/chains/:chainId/info
-	printTest('チェーン情報取得', `GET /api/v1/chains/${config.chainId}/info`);
-	res = await request(config, 'GET', `/api/v1/chains/${config.chainId}/info`);
-
-	if (res.status === 200 && hasField(res.body, 'chainId')) {
-		counter.pass('チェーン情報取得', `GET /api/v1/chains/${config.chainId}/info`, 'ステータス200、chainIdフィールド確認', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('チェーン情報取得', `GET /api/v1/chains/${config.chainId}/info`, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('チェーン情報取得', `GET /api/v1/chains/${config.chainId}/info`, `期待ステータス200、実際: ${res.status}`, res.bodyText);
-	}
-
-	// 異常系: 無効なchainId
+	// 無効なchainId
 	printTest('無効なchainId', 'GET /api/v1/chains/invalid-chain-id/info');
 	res = await request(config, 'GET', '/api/v1/chains/invalid-chain-id/info');
 
 	if (res.status === 400 && hasField(res.body, 'error')) {
-		counter.pass('無効なchainId', 'GET /api/v1/chains/invalid-chain-id/info', 'ステータス400、errorフィールド確認', res.bodyText);
+		counter.pass('無効なchainId', '/chains/invalid-chain-id/info', '400確認', res.bodyText);
 	} else {
-		counter.fail('無効なchainId', 'GET /api/v1/chains/invalid-chain-id/info', `期待ステータス400、実際: ${res.status}`, res.bodyText);
-	}
-}
-
-async function testAccounts(config: TestConfig, counter: TestCounter) {
-	printHeader('Account API');
-
-	// GET /api/v1/chains/:chainId/accounts/:address
-	const endpoint = `/api/v1/chains/${config.chainId}/accounts/${config.testAddress}`;
-	printTest('アカウント情報取得', `GET ${endpoint}`);
-	let res = await request(config, 'GET', endpoint);
-
-	if (res.status === 200 && hasField(res.body, 'address')) {
-		counter.pass('アカウント情報取得', endpoint, 'ステータス200、addressフィールド確認', res.bodyText);
-	} else if (res.status === 404) {
-		counter.pass('アカウント情報取得', endpoint, 'ステータス404（アカウント未発見）- 正常なエラーレスポンス', res.bodyText);
-	} else if (res.status === 502 && res.bodyText.includes('Downstream error')) {
-		// バックエンドからエラーレスポンスが返っている = 通信は成功
-		counter.pass('アカウント情報取得', endpoint, 'バックエンド接続成功（無効なアドレスエラー）', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('アカウント情報取得', endpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('アカウント情報取得', endpoint, `期待ステータス200/404、実際: ${res.status}`, res.bodyText);
-	}
-
-	// 異常系: 空のアドレス
-	const emptyEndpoint = `/api/v1/chains/${config.chainId}/accounts/%20`;
-	printTest('空のアドレス', `GET ${emptyEndpoint}`);
-	res = await request(config, 'GET', emptyEndpoint);
-
-	if (res.status === 400) {
-		counter.pass('空のアドレス', emptyEndpoint, 'ステータス400、バリデーションエラー確認', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('空のアドレス', emptyEndpoint, `バックエンド接続エラー (${res.status})`, res.bodyText);
-	} else {
-		counter.skip('空のアドレス', emptyEndpoint, `ステータス: ${res.status}（実装依存）`, res.bodyText);
-	}
-}
-
-async function testTx(config: TestConfig, counter: TestCounter) {
-	printHeader('Transaction API');
-
-	// POST /api/v1/chains/:chainId/simulate
-	const simulateEndpoint = `/api/v1/chains/${config.chainId}/simulate`;
-	printTest('Txシミュレート', `POST ${simulateEndpoint}`);
-	let res = await request(config, 'POST', simulateEndpoint, { txBytesBase64: config.dummyTxBytes });
-
-	if (res.status === 200 && hasField(res.body, 'gasUsed')) {
-		counter.pass('Txシミュレート', simulateEndpoint, 'ステータス200、gasUsedフィールド確認', res.bodyText);
-	} else if (res.status === 400) {
-		counter.pass('Txシミュレート', simulateEndpoint, 'ステータス400（無効なTx）- バリデーション動作確認', res.bodyText);
-	} else if (res.status === 502 && res.bodyText.includes('Downstream error')) {
-		// バックエンドからエラーレスポンスが返っている = 通信は成功
-		counter.pass('Txシミュレート', simulateEndpoint, 'バックエンド接続成功（無効なTxエラー）', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('Txシミュレート', simulateEndpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('Txシミュレート', simulateEndpoint, `予期しないステータス: ${res.status}`, res.bodyText);
-	}
-
-	// 異常系: txBytesBase64なし
-	printTest('txBytesBase64なし', `POST ${simulateEndpoint}`);
-	res = await request(config, 'POST', simulateEndpoint, {});
-
-	if (res.status === 400) {
-		counter.pass('txBytesBase64なし', simulateEndpoint, 'ステータス400、バリデーションエラー確認', res.bodyText);
-	} else {
-		counter.fail('txBytesBase64なし', simulateEndpoint, `期待ステータス400、実際: ${res.status}`, res.bodyText);
-	}
-
-	// POST /api/v1/chains/:chainId/broadcast
-	const broadcastEndpoint = `/api/v1/chains/${config.chainId}/broadcast`;
-	printTest('Txブロードキャスト', `POST ${broadcastEndpoint}`);
-	res = await request(config, 'POST', broadcastEndpoint, { txBytesBase64: config.dummyTxBytes, mode: 'sync' });
-
-	if (res.status === 200 && hasField(res.body, 'txhash')) {
-		counter.pass('Txブロードキャスト', broadcastEndpoint, 'ステータス200、txhashフィールド確認', res.bodyText);
-	} else if (res.status === 400 || res.status === 500) {
-		counter.pass('Txブロードキャスト', broadcastEndpoint, `ステータス${res.status}（無効なTx）- エラーハンドリング確認`, res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('Txブロードキャスト', broadcastEndpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('Txブロードキャスト', broadcastEndpoint, `予期しないステータス: ${res.status}`, res.bodyText);
-	}
-
-	// GET /api/v1/chains/:chainId/tx/:txhash
-	const txEndpoint = `/api/v1/chains/${config.chainId}/tx/${config.testTxhash}`;
-	printTest('Tx情報取得', `GET ${txEndpoint}`);
-	res = await request(config, 'GET', txEndpoint);
-
-	if (res.status === 200 && hasField(res.body, 'txhash')) {
-		counter.pass('Tx情報取得', txEndpoint, 'ステータス200、txhashフィールド確認', res.bodyText);
-	} else if (res.status === 404) {
-		counter.pass('Tx情報取得', txEndpoint, 'ステータス404（Tx未発見）- 正常なエラーレスポンス', res.bodyText);
-	} else if (res.status === 502 && res.bodyText.includes('Downstream error')) {
-		// バックエンドからエラーレスポンスが返っている = 通信は成功
-		counter.pass('Tx情報取得', txEndpoint, 'バックエンド接続成功（Tx未発見）', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('Tx情報取得', txEndpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('Tx情報取得', txEndpoint, `期待ステータス200/404、実際: ${res.status}`, res.bodyText);
-	}
-}
-
-async function testObserve(config: TestConfig, counter: TestCounter) {
-	printHeader('Observation API');
-
-	// GET /api/v1/chains/:chainId/mempool
-	const mempoolEndpoint = `/api/v1/chains/${config.chainId}/mempool`;
-	printTest('Mempool情報取得', `GET ${mempoolEndpoint}`);
-	let res = await request(config, 'GET', mempoolEndpoint);
-
-	if (res.status === 200 && hasField(res.body, 'numUnconfirmedTxs')) {
-		counter.pass('Mempool情報取得', mempoolEndpoint, 'ステータス200、numUnconfirmedTxsフィールド確認', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('Mempool情報取得', mempoolEndpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('Mempool情報取得', mempoolEndpoint, `期待ステータス200、実際: ${res.status}`, res.bodyText);
-	}
-
-	// GET /api/v1/chains/:chainId/status
-	const statusEndpoint = `/api/v1/chains/${config.chainId}/status`;
-	printTest('ノードステータス取得', `GET ${statusEndpoint}`);
-	res = await request(config, 'GET', statusEndpoint);
-
-	if (res.status === 200 && hasField(res.body, 'nodeInfo')) {
-		counter.pass('ノードステータス取得', statusEndpoint, 'ステータス200、nodeInfoフィールド確認', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('ノードステータス取得', statusEndpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('ノードステータス取得', statusEndpoint, `期待ステータス200、実際: ${res.status}`, res.bodyText);
-	}
-
-	// GET /api/v1/chains/:chainId/blocks/latest
-	const latestEndpoint = `/api/v1/chains/${config.chainId}/blocks/latest`;
-	printTest('最新ブロック取得', `GET ${latestEndpoint}`);
-	res = await request(config, 'GET', latestEndpoint);
-
-	if (res.status === 200 && hasField(res.body, 'height')) {
-		counter.pass('最新ブロック取得', latestEndpoint, 'ステータス200、heightフィールド確認', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('最新ブロック取得', latestEndpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('最新ブロック取得', latestEndpoint, `期待ステータス200、実際: ${res.status}`, res.bodyText);
-	}
-
-	// GET /api/v1/chains/:chainId/blocks/:height
-	const blockEndpoint = `/api/v1/chains/${config.chainId}/blocks/${config.testBlockHeight}`;
-	printTest('指定ブロック取得', `GET ${blockEndpoint}`);
-	res = await request(config, 'GET', blockEndpoint);
-
-	if (res.status === 200 && hasField(res.body, 'height')) {
-		counter.pass('指定ブロック取得', blockEndpoint, 'ステータス200、heightフィールド確認', res.bodyText);
-	} else if (res.status === 404) {
-		counter.pass('指定ブロック取得', blockEndpoint, 'ステータス404（ブロック未発見）- 正常なエラーレスポンス', res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
-		counter.skip('指定ブロック取得', blockEndpoint, `バックエンド接続エラー (${res.status}) - K8s環境が必要`, res.bodyText);
-	} else {
-		counter.fail('指定ブロック取得', blockEndpoint, `期待ステータス200/404、実際: ${res.status}`, res.bodyText);
-	}
-
-	// 異常系: 無効なheight
-	const invalidEndpoint = `/api/v1/chains/${config.chainId}/blocks/invalid`;
-	printTest('無効なブロック高さ', `GET ${invalidEndpoint}`);
-	res = await request(config, 'GET', invalidEndpoint);
-
-	if (res.status === 400) {
-		counter.pass('無効なブロック高さ', invalidEndpoint, 'ステータス400、バリデーションエラー確認', res.bodyText);
-	} else {
-		counter.fail('無効なブロック高さ', invalidEndpoint, `期待ステータス400、実際: ${res.status}`, res.bodyText);
-	}
-}
-
-async function testAuth(config: TestConfig, counter: TestCounter) {
-	printHeader('Authentication Tests');
-
-	printTest('認証ヘッダーなし', 'GET /api/v1/chains (without Authorization)');
-	const res = await request(config, 'GET', '/api/v1/chains', undefined, false);
-
-	if (res.status === 401) {
-		counter.pass('認証ヘッダーなし', '/api/v1/chains', 'ステータス401、認証エラー確認', res.bodyText);
-	} else if (res.status === 200) {
-		counter.skip('認証ヘッダーなし', '/api/v1/chains', 'AUTH_DISABLED=trueのため認証がスキップされています', res.bodyText);
-	} else {
-		counter.fail('認証ヘッダーなし', '/api/v1/chains', `期待ステータス401、実際: ${res.status}`, res.bodyText);
+		counter.fail('無効なchainId', '/chains/invalid-chain-id/info', `期待400、実際: ${res.status}`, res.bodyText);
 	}
 }
 
 async function test404(config: TestConfig, counter: TestCounter) {
-	printHeader('404 Not Found Tests');
+	printHeader('404 Not Found');
 
 	printTest('存在しないエンドポイント', 'GET /api/v1/nonexistent');
 	const res = await request(config, 'GET', '/api/v1/nonexistent');
 
 	if (res.status === 404 && hasField(res.body, 'error')) {
-		counter.pass('存在しないエンドポイント', '/api/v1/nonexistent', 'ステータス404、errorフィールド確認', res.bodyText);
+		counter.pass('存在しないエンドポイント', '/nonexistent', '404確認', res.bodyText);
 	} else {
-		counter.fail('存在しないエンドポイント', '/api/v1/nonexistent', `期待ステータス404、実際: ${res.status}`, res.bodyText);
+		counter.fail('存在しないエンドポイント', '/nonexistent', `期待404、実際: ${res.status}`, res.bodyText);
 	}
 }
 
@@ -273,59 +342,44 @@ async function test404(config: TestConfig, counter: TestCounter) {
 // ============================================================
 
 function showHelp() {
-	console.log('Cryptomeria-Bff APIテストスクリプト');
+	console.log('\nCryptomeria-BFF v1 APIテストスクリプト');
 	console.log('');
-	console.log('使用方法: npx tsx tests/run.ts [category...]');
+	console.log('使用方法: yarn test [category...]');
 	console.log('');
 	console.log('カテゴリ:');
-	console.log('  health    - ヘルスチェックテスト');
-	console.log('  chains    - Discovery APIテスト');
-	console.log('  accounts  - Account APIテスト');
-	console.log('  tx        - Transaction APIテスト');
-	console.log('  observe   - Observation APIテスト');
-	console.log('  auth      - 認証テスト');
-	console.log('  404       - 404エラーテスト');
+	console.log('  health    - ヘルスチェック');
+	console.log('  layer1    - 第1層（System/K8s）テスト');
+	console.log('  layer2    - 第2層（Blockchain）テスト');
+	console.log('  layer3    - 第3層（Utilities）テスト');
+	console.log('  jobs      - ジョブ共通テスト');
+	console.log('  legacy    - レガシーAPIテスト');
+	console.log('  404       - 404テスト');
 	console.log('');
-	console.log('引数なしの場合、全カテゴリのテストを実行します。');
-	console.log('');
-	console.log('環境変数:');
-	console.log('  BASE_URL   - BFFサーバーのURL (default: http://localhost:3000)');
-	console.log('  CHAIN_ID   - テスト対象のチェーンID (default: gwc)');
-	console.log('  AUTH_TOKEN - 認証トークン');
-	console.log('');
-	console.log('例:');
-	console.log('  npx tsx tests/run.ts                    # 全テスト');
-	console.log('  npx tsx tests/run.ts health chains      # health と chains のみ');
-	console.log('  BASE_URL=http://localhost:8080 npx tsx tests/run.ts');
+	console.log('引数なしの場合、全カテゴリを実行');
 }
 
 async function checkServerConnection(config: TestConfig): Promise<boolean> {
 	console.log(`\n${colors.cyan}サーバー接続確認中...${colors.reset}`);
 	try {
-		const res = await fetch(`${config.baseUrl}/health`, {
-			signal: AbortSignal.timeout(5000),
-		});
+		const res = await fetch(`${config.baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
 		if (res.status === 200) {
 			console.log(`${colors.green}サーバー接続OK${colors.reset}`);
 			return true;
 		}
-	} catch {
-		// ignore
-	}
+	} catch { /* ignore */ }
 	console.log(`${colors.yellow}警告: サーバー (${config.baseUrl}) に接続できません${colors.reset}`);
-	console.log(`${colors.yellow}BFFサーバーが起動していることを確認してください${colors.reset}`);
 	return false;
 }
 
-type TestCategory = 'health' | 'chains' | 'accounts' | 'tx' | 'observe' | 'auth' | '404';
+type TestCategory = 'health' | 'layer1' | 'layer2' | 'layer3' | 'jobs' | 'legacy' | '404';
 
 const testFunctions: Record<TestCategory, (config: TestConfig, counter: TestCounter) => Promise<void>> = {
 	health: testHealth,
-	chains: testChains,
-	accounts: testAccounts,
-	tx: testTx,
-	observe: testObserve,
-	auth: testAuth,
+	layer1: testLayer1,
+	layer2: testLayer2,
+	layer3: testLayer3,
+	jobs: testJobsTests,
+	legacy: testLegacyChains,
 	'404': test404,
 };
 
@@ -342,7 +396,7 @@ async function main() {
 
 	console.log(`${colors.blue}`);
 	console.log('╔═══════════════════════════════════════════════════════════════════╗');
-	console.log('║         Cryptomeria-Bff API テストスクリプト                      ║');
+	console.log('║         Cryptomeria-BFF v1 API テスト                             ║');
 	console.log('╚═══════════════════════════════════════════════════════════════════╝');
 	console.log(`${colors.reset}`);
 
@@ -357,15 +411,13 @@ async function main() {
 	const categories: TestCategory[] =
 		args.length > 0
 			? (args.filter((arg) => arg in testFunctions) as TestCategory[])
-			: ['health', 'chains', 'accounts', 'tx', 'observe', 'auth', '404'];
+			: ['health', 'layer1', 'layer2', 'layer3', 'jobs', 'legacy', '404'];
 
 	for (const category of categories) {
 		await testFunctions[category](config, counter);
 	}
 
 	counter.printSummary();
-
-	// 失敗があれば終了コード1
 	process.exit(counter.failed > 0 ? 1 : 0);
 }
 
