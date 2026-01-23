@@ -9,7 +9,7 @@ import type { K8sManager } from '../managers/k8s-manager.js';
 import type { CryptomeriaManager } from '../managers/cryptomeria-manager.js';
 import { ChainIdParamSchema } from '../types/api.js';
 import { isValidChainId } from '../types/chains.js';
-import { invalidArgumentError } from '../lib/errors.js';
+import { invalidArgumentError, upstreamUnavailableError } from '../lib/errors.js';
 import { BlocktimeCache } from '../cache/blocktime-cache.js';
 
 
@@ -84,15 +84,21 @@ export function createChainsRoutes(k8sManager: K8sManager, cryptomeriaManager?: 
 	app.get('/:chainId/info', async (c) => {
 		const chainId = c.req.param('chainId');
 
-		// バリデーション
 		if (!isValidChainId(chainId)) {
 			throw invalidArgumentError('Invalid chainId format', { chainId });
 		}
 
-		const endpoints = await k8sManager.resolveChainEndpoints(chainId);
-		const info = k8sManager.endpointsToInfo(endpoints);
+		// Use cryptomeriaManager for nodeInfo/syncInfo
+		if (!cryptomeriaManager) {
+			throw invalidArgumentError('CryptomeriaManager is required for info', { chainId });
+		}
 
-		return c.json(info);
+		const status = await cryptomeriaManager.getStatus(chainId);
+		return c.json({
+			chainId,
+			nodeInfo: status.nodeInfo,
+			syncInfo: status.syncInfo
+		});
 	});
 
 	/**
@@ -141,8 +147,16 @@ export function createChainsRoutes(k8sManager: K8sManager, cryptomeriaManager?: 
 			throw invalidArgumentError('Chain RPC endpoint not available', { chainId });
 		}
 
+
 		// Get latest height
-		const statusRes = await fetch(`${rpcBase}/status`);
+		const statusRes = await fetch(`${rpcBase}/status`).catch((e) => {
+			throw upstreamUnavailableError('Failed to fetch chain status', { chainId, error: String(e) });
+		});
+
+		if (!statusRes.ok) {
+			throw upstreamUnavailableError(`Upstream status check failed: ${statusRes.status}`, { chainId });
+		}
+
 		const statusData = await statusRes.json() as {
 			result?: { sync_info?: { latest_block_height?: string } }
 		};

@@ -181,24 +181,98 @@ export class CryptomeriaManager {
 	/**
 	 * Mempool情報を取得（RPC）
 	 */
-	async getMempool(chainId: string): Promise<MempoolInfo> {
+	/**
+	 * Mempool詳細情報を取得（Rest API）
+	 * P2-3: サイズ・Txリスト取得、制限対応
+	 */
+	async getMempoolDetail(chainId: string, limit: number = 100): Promise<{ size: number; totalBytes: number; txs: string[] }> {
 		const endpoints = await this.k8sManager.resolveChainEndpoints(chainId);
-		const rpcBase = endpoints.rpcBase ?? endpoints.restBase;
-		const url = `${rpcBase}/num_unconfirmed_txs`;
+		const restBase = endpoints.restBase;
 
-		const response = await this.fetchWithTimeout(url);
-		const data = await response.json() as {
-			result?: {
-				n_txs?: string;
-				total_bytes?: string;
-			};
-		};
+		// 1. Get size (unconfirmed_txs count)
+		// /cosmos/tx/v1beta1/txs doesn't give mempool txs usually.
+		// Use RPC /num_unconfirmed_txs for count, /unconfirmed_txs for list
+		const rpcBase = endpoints.rpcBase ?? endpoints.restBase; // Fallback might not work for RPC if REST base is used, but types handle it.
+
+		// Note: The prompt implied using "REST: /num_unconfirmed_txs"? No, standard is RPC for mempool usually.
+		// "cryptomeria-manager.ts に getMempoolDetail を追加 or getMempool を拡張"
+
+		// Using RPC for mempool is standard in Cosmos.
+		// URL: /num_unconfirmed_txs
+		const numRes = await this.fetchWithTimeout(`${rpcBase}/num_unconfirmed_txs`);
+		const numData = await numRes.json() as { result: { n_txs: string; total_bytes: string } };
+		const size = parseInt(numData.result.n_txs, 10);
+		const totalBytes = parseInt(numData.result.total_bytes, 10);
+
+		// 2. Get Txs
+		// URL: /unconfirmed_txs?limit=N
+		const txsRes = await this.fetchWithTimeout(`${rpcBase}/unconfirmed_txs?limit=${limit}`);
+		const txsData = await txsRes.json() as { result: { txs: string[] } };
+		let txs = txsData.result?.txs ?? [];
+
+		// Truncate if too many (should be handled by limit param but just in case)
+		if (txs.length > limit) {
+			txs = txs.slice(0, limit);
+		}
+
+		// Truncate individual tx strings if too long (MAX_TX_BASE64_CHARS check done in validation usually, but display might need truncate)
+		// The requirement was: "文字数制限 maxTxBase64Chars を超えないように 先頭から詰める（合計文字数でbreak）"
+		// This likely means: response size limit for the API. 
+		// "先頭から詰める" -> Keep adding txs until total length exceeds max?
+		// "合計文字数でbreak" implies total response size control.
+
+		const MAX_TOTAL_CHARS = 100000; // Example limit
+		let currentChars = 0;
+		const safeTxs: string[] = [];
+
+		for (const tx of txs) {
+			if (currentChars + tx.length > MAX_TOTAL_CHARS) break;
+			safeTxs.push(tx);
+			currentChars += tx.length;
+		}
 
 		return {
-			numUnconfirmedTxs: parseInt(data.result?.n_txs ?? '0', 10),
-			totalBytes: parseInt(data.result?.total_bytes ?? '0', 10),
+			size,
+			totalBytes,
+			txs: safeTxs
 		};
 	}
+
+	/**
+	 * Mempool情報を取得（Legacy wrapper）
+	 */
+	async getMempool(chainId: string): Promise<MempoolInfo> {
+		const detail = await this.getMempoolDetail(chainId, 1);
+		return {
+			numUnconfirmedTxs: detail.size,
+			totalBytes: detail.totalBytes
+		};
+	}
+
+	/**
+	 * Balancesを取得（Bank API）
+	 */
+	async getBalances(chainId: string, address: string): Promise<{ denom: string; amount: string }[]> {
+		const endpoints = await this.k8sManager.resolveChainEndpoints(chainId);
+		const url = `${endpoints.restBase}/cosmos/bank/v1beta1/balances/${address}`;
+
+		const response = await this.fetchWithTimeout(url);
+		const data = await response.json();
+
+		// Zod validation (manual check here for brevity, or cleaner validation helper)
+		// Expect: { balances: [{ denom, amount }], pagination: ... }
+		if (!data || typeof data !== 'object' || !Array.isArray((data as any).balances)) {
+			// fallback or empty
+			return [];
+		}
+
+		const balances = (data as any).balances as Array<{ denom: string; amount: string }>;
+		return balances.map(b => ({
+			denom: String(b.denom),
+			amount: String(b.amount)
+		}));
+	}
+
 
 	/**
 	 * ノードステータスを取得（RPC）

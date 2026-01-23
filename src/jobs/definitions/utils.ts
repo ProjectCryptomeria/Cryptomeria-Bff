@@ -187,7 +187,8 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Throughput calculation complete');
-                    return job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    return { result: prev };
                 },
             },
         },
@@ -259,7 +260,8 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Resource snapshot complete');
-                    return job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    return { result: prev };
                 },
             },
         },
@@ -310,7 +312,8 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Tx confirmation complete');
-                    return job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    return { result: prev };
                 },
             },
         },
@@ -383,7 +386,8 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Batch confirmation complete');
-                    return job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    return { result: prev };
                 },
             },
         },
@@ -454,7 +458,8 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Broadcast batch complete');
-                    return job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    return { result: prev }; // Return result to populate job.result
                 },
             },
         },
@@ -565,7 +570,8 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Broadcast-and-confirm complete');
-                    return job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    return { result: prev };
                 },
             },
         },

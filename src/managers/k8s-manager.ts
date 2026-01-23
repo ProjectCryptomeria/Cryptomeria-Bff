@@ -6,6 +6,7 @@
  */
 
 import * as k8s from '@kubernetes/client-node';
+import { PassThrough } from 'stream';
 import type { EnvConfig } from '../config/env.js';
 import type { ChainSummary, ChainEndpoints, ChainInfo } from '../types/chains.js';
 import { extractChainId } from '../types/chains.js';
@@ -115,10 +116,13 @@ interface ChainPort {
 
 export class K8sManager {
 	private readonly k8sApi: k8s.CoreV1Api;
+	private readonly kubeConfig: k8s.KubeConfig;
 	private readonly namespace: string;
-	private readonly nodeHost: string;
+	private nodeHost: string;
 	private readonly cacheTtlMs: number;
 	private readonly timeoutMs: number;
+	private readonly autoDetectEnabled: boolean;
+	private nodeHostDetected: boolean = false;
 
 	private endpointCache: Map<string, CacheEntry<ChainEndpoints>> = new Map();
 	private servicesCache: CacheEntry<ChainSummary[]> | null = null;
@@ -127,11 +131,13 @@ export class K8sManager {
 		const kc = new k8s.KubeConfig();
 		kc.loadFromDefault();
 
+		this.kubeConfig = kc;
 		this.k8sApi = kc.makeApiClient(k8s.CoreV1Api);
 		this.namespace = config.k8sNamespace;
 		this.nodeHost = config.nodeHost;
 		this.cacheTtlMs = config.endpointCacheTtlMs;
 		this.timeoutMs = config.downstreamTimeoutMs;
+		this.autoDetectEnabled = config.autoDetectNodeHost;
 	}
 
 	// ===== Getters =====
@@ -142,6 +148,40 @@ export class K8sManager {
 
 	getNodeHost(): string {
 		return this.nodeHost;
+	}
+
+	/**
+	 * Node IPを自動検出する（遅延実行）
+	 */
+	private async ensureNodeHost(): Promise<void> {
+		if (!this.autoDetectEnabled || this.nodeHostDetected) {
+			return;
+		}
+
+		try {
+			const nodes = await this.k8sApi.listNode();
+			const items = nodes.body.items;
+
+			if (items.length > 0) {
+				// 最初のNodeを採用（通常はこれで十分）
+				const node = items[0];
+				const addresses = node.status?.addresses ?? [];
+
+				// ExternalIPを優先、なければInternalIP
+				const externalIp = addresses.find(a => a.type === 'ExternalIP')?.address;
+				const internalIp = addresses.find(a => a.type === 'InternalIP')?.address;
+
+				const detected = externalIp ?? internalIp;
+				if (detected) {
+					console.log(`[K8sManager] Auto-detected Node Host: ${detected} (was: ${this.nodeHost})`);
+					this.nodeHost = detected;
+				}
+			}
+			this.nodeHostDetected = true;
+		} catch (error) {
+			console.warn('[K8sManager] Failed to auto-detect node host:', error);
+			// Fallback to configured value
+		}
 	}
 
 	// ===== System Status Methods =====
@@ -282,6 +322,7 @@ export class K8sManager {
 	}
 
 	async getChainPorts(): Promise<ChainPort[]> {
+		await this.ensureNodeHost();
 		const services = await this.listServices({});
 		const result: ChainPort[] = [];
 
@@ -549,22 +590,37 @@ export class K8sManager {
 	}
 
 	async resolveChainEndpoints(chainId: string): Promise<ChainEndpoints> {
+		await this.ensureNodeHost();
 		const cached = this.endpointCache.get(chainId);
 		if (cached && Date.now() < cached.expiresAt) {
 			return cached.data;
 		}
 
-		const serviceName = `cryptomeria-${chainId}`;
-
 		try {
-			const response = await this.k8sApi.readNamespacedService(serviceName, this.namespace);
-			const service = response.body;
+			// Resolve service using Label Selector (preferred)
+			const services = await this.listServices({
+				selector: `app.kubernetes.io/instance=${chainId},app.kubernetes.io/category=chain`,
+			});
 
-			if (service.spec?.type !== 'NodePort') {
+			let service: ServiceInfo | undefined = services[0];
+			let serviceName = service?.name;
+
+			// Fallback: Try by name if selector info is missing
+			if (!service) {
+				serviceName = `cryptomeria-${chainId}`;
+				const legacyServices = await this.listServices({ name: serviceName });
+				service = legacyServices.find((s) => s.name === serviceName);
+			}
+
+			if (!service || !serviceName) {
+				throw notFoundError('Chain service not found', { chainId });
+			}
+
+			if (service.type !== 'NodePort') {
 				throw notFoundError('Service is not NodePort type', { chainId, serviceName });
 			}
 
-			const ports = service.spec?.ports ?? [];
+			const ports = service.ports;
 			const endpoints: ChainEndpoints = {
 				chainId,
 				serviceName,
@@ -662,5 +718,93 @@ export class K8sManager {
 			return response?.statusCode === 404;
 		}
 		return false;
+	}
+
+	// ===== Exec Methods =====
+
+	async execInPod(
+		podName: string,
+		command: string[],
+		opts: {
+			container?: string;
+			stdin?: string;
+			safeCommandLog?: string;
+		} = {}
+	): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+		const container = opts.container ?? ''; // Empty string lets k8s default to first container
+		const commandString = command.join(' ');
+
+		// Log the command (masked if provided)
+		const logCmd = opts.safeCommandLog ?? commandString;
+		console.log(`[K8s] Executing in ${podName}: ${logCmd}`);
+
+		// Wrap command to capture exit code:
+		// We execute: /bin/sh -lc "command...; echo __EXIT_CODE__:$?"
+		// NOTE: This assumes 'sh' is available in the container.
+		const wrappedCommand = ['/bin/sh', '-lc', `${commandString}; echo __EXIT_CODE__:$?`];
+
+		const exec = new k8s.Exec(this.kubeConfig);
+		const stdoutStream = new PassThrough();
+		const stderrStream = new PassThrough();
+
+		let stdoutRaw = '';
+		let stderrRaw = '';
+
+		stdoutStream.on('data', (chunk) => {
+			stdoutRaw += chunk.toString();
+		});
+		stderrStream.on('data', (chunk) => {
+			stderrRaw += chunk.toString();
+		});
+
+		// Handle stdin
+		let inputStream: PassThrough | null = null;
+		if (opts.stdin) {
+			inputStream = new PassThrough();
+			inputStream.end(opts.stdin);
+		}
+
+		await exec.exec(
+			this.namespace,
+			podName,
+			container,
+			wrappedCommand,
+			stdoutStream,
+			stderrStream,
+			inputStream,
+			false, // tty
+			(_status: k8s.V1Status) => {
+				// Status callback
+			}
+		);
+
+		const lines = stdoutRaw.trim().split('\n');
+		let exitCode = -1;
+		let stdoutClean = stdoutRaw;
+
+		// Find the exit code line at the end
+		for (let i = lines.length - 1; i >= 0; i--) {
+			const line = lines[i].trim();
+			if (line.includes('__EXIT_CODE__:')) {
+				const parts = line.split('__EXIT_CODE__:');
+				if (parts.length > 1) {
+					const codeStr = parts[parts.length - 1];
+					const parsed = parseInt(codeStr.trim(), 10);
+					if (!isNaN(parsed)) {
+						exitCode = parsed;
+						// Remove the exit line from the output lines
+						lines.splice(i, 1);
+						stdoutClean = lines.join('\n');
+						break;
+					}
+				}
+			}
+		}
+
+		return {
+			stdout: stdoutClean,
+			stderr: stderrRaw,
+			exitCode: exitCode === -1 ? 1 : exitCode,
+		};
 	}
 }

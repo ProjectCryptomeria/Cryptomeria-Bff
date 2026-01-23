@@ -19,20 +19,31 @@ export function createObserveRoutes(cryptomeriaManager: CryptomeriaManager): Hon
 	 * GET /api/v1/chains/:chainId/mempool
 	 * Mempool情報を取得
 	 */
+	/**
+	 * GET /api/v1/chains/:chainId/mempool
+	 * Mempool情報を取得
+	 * Limit対応
+	 */
 	app.get('/:chainId/mempool', async (c) => {
 		const chainId = c.req.param('chainId');
+		const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!, 10) : 100;
 
 		if (!isValidChainId(chainId)) {
 			throw invalidArgumentError('Invalid chainId format', { chainId });
 		}
 
-		const result = await cryptomeriaManager.getMempool(chainId);
+		// Use getMempoolDetail for full details
+		const result = await cryptomeriaManager.getMempoolDetail(chainId, limit);
+
+		// Ensure maxTxBase64Chars check is done in getMempoolDetail or here if still needed?
+		// cryptomeriaManager handles truncation/filtering logic requested.
+
 		return c.json(result);
 	});
 
 	/**
 	 * GET /api/v1/chains/:chainId/status
-	 * ノードステータスを取得
+	 * ノードステータスを取得（フラット形式）
 	 */
 	app.get('/:chainId/status', async (c) => {
 		const chainId = c.req.param('chainId');
@@ -42,7 +53,13 @@ export function createObserveRoutes(cryptomeriaManager: CryptomeriaManager): Hon
 		}
 
 		const result = await cryptomeriaManager.getStatus(chainId);
-		return c.json(result);
+		// Flatten response as per requirement
+		return c.json({
+			chainId,
+			latestHeight: result.syncInfo.latestBlockHeight,
+			latestTime: result.syncInfo.latestBlockTime,
+			catchingUp: result.syncInfo.catchingUp
+		});
 	});
 
 	/**

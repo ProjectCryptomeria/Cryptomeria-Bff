@@ -221,6 +221,19 @@ export function createUtilsRoutes(
 
     // ===== /load エンドポイント =====
 
+    // Helper for Base64 validation
+    const isValidBase64 = (str: string): boolean => {
+        try {
+            return btoa(atob(str)) === str;
+        } catch {
+            return false;
+        }
+    };
+
+    const MAX_TX_BASE64_CHARS = 100000;
+
+    // ... (in createUtilsRoutes)
+
     /**
      * POST /load/broadcast-batch - 並列ブロードキャスト（ジョブ）
      */
@@ -248,6 +261,17 @@ export function createUtilsRoutes(
                 max: config.maxBatchSize,
                 actual: body.txBytesBase64List.length,
             });
+        }
+
+        // Strict Validation
+        for (let i = 0; i < body.txBytesBase64List.length; i++) {
+            const tx = body.txBytesBase64List[i];
+            if (tx.length > MAX_TX_BASE64_CHARS) {
+                throw invalidArgumentError(`txBytesBase64 at index ${i} exceeds max length ${MAX_TX_BASE64_CHARS}`, { index: i });
+            }
+            if (!isValidBase64(tx)) {
+                throw invalidArgumentError(`txBytesBase64 at index ${i} is not valid Base64`, { index: i });
+            }
         }
 
         const broadcastMode = body.broadcastMode ?? 'sync';

@@ -176,16 +176,40 @@ async function testChainsBlocktime(config: TestConfig, counter: TestCounter) {
 		}
 	} else if (res.status === 400 || res.status === 404) {
 		counter.skip('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, `${res.status}（chainId不明）`, res.bodyText);
-	} else if (res.status === 502 || res.status === 504) {
+	} else if (res.status === 502 || res.status === 503 || res.status === 504) {
 		counter.skip('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, `バックエンド接続エラー (${res.status})`, res.bodyText);
 	} else {
 		counter.fail('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, `期待ステータス200、実際: ${res.status}`, res.bodyText);
 	}
 }
 
+async function testChainsTxOps(config: TestConfig, counter: TestCounter) {
+	printTest('Txシミュレーション (existence check)', `POST /api/v1/chains/${config.chainId}/simulate`);
+	const simRes = await request(config, 'POST', `/api/v1/chains/${config.chainId}/simulate`, {
+		txBytesBase64: 'invalid_base64'
+	});
+	if (simRes.status === 400 || simRes.status === 503 || simRes.status === 502) {
+		counter.pass('Txシミュレート', 'simulate', `status=${simRes.status} (EP存在確認)`, simRes.bodyText);
+	} else {
+		counter.fail('Txシミュレート', 'simulate', `予期せぬステータス: ${simRes.status}`, simRes.bodyText);
+	}
+
+	printTest('Txブロードキャスト (existence check)', `POST /api/v1/chains/${config.chainId}/broadcast`);
+	const broadRes = await request(config, 'POST', `/api/v1/chains/${config.chainId}/broadcast`, {
+		txBytesBase64: 'invalid_base64',
+		mode: 'sync'
+	});
+	if (broadRes.status === 400 || broadRes.status === 503 || broadRes.status === 502) {
+		counter.pass('Txブロードキャスト', 'broadcast', `status=${broadRes.status} (EP存在確認)`, broadRes.bodyText);
+	} else {
+		counter.fail('Txブロードキャスト', 'broadcast', `予期せぬステータス: ${broadRes.status}`, broadRes.bodyText);
+	}
+}
+
 async function testLayer2(config: TestConfig, counter: TestCounter) {
 	await testChainsDiscovery(config, counter);
 	await testChainsBlocktime(config, counter);
+	await testChainsTxOps(config, counter);
 }
 
 // ============================================================

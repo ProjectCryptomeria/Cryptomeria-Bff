@@ -27,6 +27,7 @@ import { createUtilsRoutes } from './routes/utils.js';
 
 // Job definitions
 import { createUtilsJobDefinitions } from './jobs/definitions/utils.js';
+import { createSystemJobDefinitions } from './jobs/definitions/system.js';
 
 import { ApiError } from './lib/errors.js';
 import { ApiError as LegacyApiError, unauthorizedError, internalError } from './types/errors.js';
@@ -44,6 +45,11 @@ export function createApp(config: EnvConfig): Hono {
 
 	// ジョブシステム初期化
 	const jobRunner = new JobRunner(config);
+	// 起動時のクリーンアップ（非同期で実行）
+	jobRunner.cleanupStaleJobs().catch(err => {
+		console.error('[JobRunner] Failed to cleanup stale jobs:', err);
+	});
+
 	registerJobDefinitions(jobRunner, cryptomeriaManager, k8sManager);
 
 	// ミドルウェア
@@ -149,45 +155,10 @@ function registerJobDefinitions(
 	k8sManager: K8sManager
 ): void {
 	// System jobs
-	jobRunner.registerDefinition('system.start', {
-		steps: ['discover', 'initRelayer', 'connectAll', 'startRelayer', 'waitReady'],
-		executors: {
-			discover: async (_job, _stepIndex, _signal, log) => {
-				log('Discovering namespace and pods...');
-				return { message: 'Discovery complete' };
-			},
-			initRelayer: async (_job, _stepIndex, _signal, log) => {
-				log('Initializing relayer config/chains/keys...');
-				return { message: 'Relayer initialized' };
-			},
-			connectAll: async (_job, _stepIndex, _signal, log) => {
-				log('Connecting all chains...');
-				return { message: 'All chains connected' };
-			},
-			startRelayer: async (_job, _stepIndex, _signal, log) => {
-				log('Starting relayer...');
-				return { message: 'Relayer started' };
-			},
-			waitReady: async (_job, _stepIndex, _signal, log) => {
-				log('Waiting for IBC ready...');
-				return { message: 'IBC ready' };
-			},
-		},
-	});
-
-	jobRunner.registerDefinition('system.connect', {
-		steps: ['discover', 'connectAll'],
-		executors: {
-			discover: async (_job, _stepIndex, _signal, log) => {
-				log('Discovering namespace and pods...');
-				return { message: 'Discovery complete' };
-			},
-			connectAll: async (_job, _stepIndex, _signal, log) => {
-				log('Connecting chains...');
-				return { message: 'Chains connected' };
-			},
-		},
-	});
+	const systemDefinitions = createSystemJobDefinitions(k8sManager);
+	for (const [type, definition] of Object.entries(systemDefinitions)) {
+		jobRunner.registerDefinition(type, definition);
+	}
 
 	// Utils jobs - use real implementations from definitions module
 	const utilsDefinitions = createUtilsJobDefinitions(cryptomeriaManager, k8sManager);

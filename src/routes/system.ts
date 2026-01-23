@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 import type { K8sManager } from '../managers/k8s-manager.js';
 import type { JobRunner } from '../jobs/job-runner.js';
 import { okResponse, textResponse } from '../lib/http.js';
-import { invalidArgumentError, notFoundError } from '../lib/errors.js';
+import { invalidArgumentError, notFoundError, conflictError } from '../lib/errors.js';
 import { nowISO } from '../lib/time.js';
 
 /**
@@ -295,8 +295,12 @@ export function createSystemRoutes(k8sManager: K8sManager, jobRunner: JobRunner)
         }
 
         // dryRun=false: ジョブ作成
-        // Note: system.relayer.restart job definition を追加する必要あり
-        const job = await jobRunner.createAndRun('system', 'system.connect', {
+        // Conflict check: existing running job
+        if (jobRunner.getStore().hasRunning('system')) {
+            throw conflictError('A system job is already running');
+        }
+
+        const job = await jobRunner.createAndRun('system', 'system.relayer.restart', {
             timeoutMs,
             operation: 'restart',
         }, timeoutMs);

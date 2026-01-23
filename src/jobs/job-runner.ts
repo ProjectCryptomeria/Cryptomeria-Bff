@@ -255,4 +255,22 @@ export class JobRunner {
 
         return this.store.get(jobId);
     }
+
+    /**
+     * 起動時に実行中まま残っているジョブを失敗にする
+     */
+    async cleanupStaleJobs(): Promise<void> {
+        const runningJobs = this.store.list({ status: 'running' });
+        for (const job of runningJobs) {
+            this.store.update(job.jobId, {
+                status: 'failed',
+                finishedAt: nowISO(),
+                error: {
+                    code: 'SYSTEM_RESTART',
+                    message: 'Job failed due to system restart',
+                },
+            });
+            this.store.appendLog(job.jobId, 'Job marked as failed due to system restart');
+        }
+    }
 }

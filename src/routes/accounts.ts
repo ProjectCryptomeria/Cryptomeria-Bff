@@ -31,8 +31,17 @@ export function createAccountsRoutes(cryptomeriaManager: CryptomeriaManager): Ho
 			throw invalidArgumentError('address is required', { field: 'address' });
 		}
 
-		const accountInfo = await cryptomeriaManager.getAccount(chainId, address);
-		return c.json(accountInfo);
+
+		// Parallel fetch: account info + balances
+		const [accountInfo, balances] = await Promise.all([
+			cryptomeriaManager.getAccount(chainId, address),
+			cryptomeriaManager.getBalances(chainId, address),
+		]);
+
+		return c.json({
+			...accountInfo,
+			balances,
+		});
 	});
 
 	return app;
