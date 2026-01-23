@@ -184,10 +184,12 @@ export class JobRunner {
                         });
                         this.store.appendLog(jobId, `Step ${step.name} skipped: ${result.message ?? ''}`);
                     } else {
+                        const { message, skipped: _skipped, result: _res, ...output } = result;
                         this.store.updateStep(jobId, i, {
                             status: 'succeeded',
                             finishedAt: nowISO(),
-                            message: result.message ?? 'Completed',
+                            message: message ?? 'Completed',
+                            output,
                         });
                         this.store.appendLog(jobId, `Step ${step.name} succeeded`);
                     }

@@ -130,7 +130,7 @@ export function createUtilsJobDefinitions(
                 fetchBlocks: async (job, stepIndex, signal, log) => {
                     const payload = getPrivatePayload<ThroughputPayload>(job.jobId)!;
                     const prev = job.steps[stepIndex - 1];
-                    const { startHeight, endHeight } = prev.message as unknown as { startHeight: number; endHeight: number };
+                    const { startHeight, endHeight } = prev.output as unknown as { startHeight: number; endHeight: number };
 
                     log(`Fetching blocks ${startHeight} to ${endHeight}...`);
 
@@ -154,7 +154,7 @@ export function createUtilsJobDefinitions(
 
                 compute: async (job, stepIndex, _signal, log) => {
                     const prev = job.steps[stepIndex - 1];
-                    const { blocks } = prev.message as unknown as { blocks: { height: number; time: string; numTxs: number }[] };
+                    const { blocks } = prev.output as unknown as { blocks: { height: number; time: string; numTxs: number }[] };
 
                     if (blocks.length < 2) {
                         throw new Error('Not enough blocks to compute throughput');
@@ -187,7 +187,7 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Throughput calculation complete');
-                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.output ?? {};
                     return { result: prev };
                 },
             },
@@ -228,7 +228,7 @@ export function createUtilsJobDefinitions(
                 collectChains: async (job, stepIndex, _signal, log) => {
                     const payload = getPrivatePayload<ResourceSnapshotPayload>(job.jobId)!;
                     const prev = job.steps[stepIndex - 1];
-                    const result = { ...(prev.message as unknown as Record<string, unknown>) };
+                    const result = { ...(prev.output as unknown as Record<string, unknown>) };
 
                     if (payload.include.includes('chainsStatus')) {
                         log('Collecting chainsStatus...');
@@ -260,7 +260,7 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Resource snapshot complete');
-                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.output ?? {};
                     return { result: prev };
                 },
             },
@@ -312,7 +312,7 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Tx confirmation complete');
-                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.output ?? {};
                     return { result: prev };
                 },
             },
@@ -365,7 +365,7 @@ export function createUtilsJobDefinitions(
 
                 aggregate: async (job, stepIndex, _signal, log) => {
                     const prev = job.steps[stepIndex - 1];
-                    const { items, durationMs } = prev.message as unknown as {
+                    const { items, durationMs } = prev.output as unknown as {
                         items: { confirmed: boolean; error?: string }[];
                         durationMs: number;
                     };
@@ -386,7 +386,7 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Batch confirmation complete');
-                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.output ?? {};
                     return { result: prev };
                 },
             },
@@ -438,7 +438,7 @@ export function createUtilsJobDefinitions(
 
                 aggregate: async (job, stepIndex, _signal, log) => {
                     const prev = job.steps[stepIndex - 1];
-                    const { items, durationMs } = prev.message as unknown as {
+                    const { items, durationMs } = prev.output as unknown as {
                         items: { ok: boolean }[];
                         durationMs: number;
                     };
@@ -458,7 +458,7 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Broadcast batch complete');
-                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.output ?? {};
                     return { result: prev }; // Return result to populate job.result
                 },
             },
@@ -509,7 +509,7 @@ export function createUtilsJobDefinitions(
                 confirmBatch: async (job, stepIndex, signal, log) => {
                     const payload = getPrivatePayload<BroadcastAndConfirmPayload>(job.jobId)!;
                     const prev = job.steps[stepIndex - 1];
-                    const { broadcastItems } = prev.message as unknown as {
+                    const { broadcastItems } = prev.output as unknown as {
                         broadcastItems: { index: number; txhash: string; ok: boolean; broadcastTime: number }[];
                     };
 
@@ -547,12 +547,12 @@ export function createUtilsJobDefinitions(
 
                 aggregate: async (job, stepIndex, _signal, log) => {
                     const prev = job.steps[stepIndex - 1];
-                    const { items } = prev.message as unknown as {
+                    const { items } = prev.output as unknown as {
                         items: { confirmed: boolean }[];
                     };
 
                     const bcStep = job.steps[stepIndex - 2];
-                    const { broadcastItems } = bcStep.message as unknown as { broadcastItems: { ok: boolean }[] };
+                    const { broadcastItems } = bcStep.output as unknown as { broadcastItems: { ok: boolean }[] };
 
                     const total = broadcastItems.length;
                     const broadcastSucceeded = broadcastItems.filter((i) => i.ok).length;
@@ -570,7 +570,7 @@ export function createUtilsJobDefinitions(
                 finish: async (job, _stepIndex, _signal, log) => {
                     clearPrivatePayload(job.jobId);
                     log('Broadcast-and-confirm complete');
-                    const prev = job.steps[job.steps.length - 2]?.message ?? {};
+                    const prev = job.steps[job.steps.length - 2]?.output ?? {};
                     return { result: prev };
                 },
             },

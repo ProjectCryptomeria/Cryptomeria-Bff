@@ -30,7 +30,8 @@ import { createUtilsJobDefinitions } from './jobs/definitions/utils.js';
 import { createSystemJobDefinitions } from './jobs/definitions/system.js';
 
 import { ApiError } from './lib/errors.js';
-import { ApiError as LegacyApiError, unauthorizedError, internalError } from './types/errors.js';
+import { ApiError as LegacyApiError, internalError } from './types/errors.js';
+
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 
 /**
@@ -57,32 +58,7 @@ export function createApp(config: EnvConfig): Hono {
 	app.use('*', prettyJSON());
 	app.use('*', cors());
 
-	// 認証ミドルウェア（/api/v1配下）
-	app.use('/api/v1/*', async (c, next) => {
-		// 開発・ローカル用途：認証を無効化
-		if (config.authDisabled) {
-			await next();
-			return;
-		}
 
-		const authHeader = c.req.header('Authorization');
-
-		if (!authHeader) {
-			throw unauthorizedError('Missing Authorization header');
-		}
-
-		const [scheme, token] = authHeader.split(' ');
-
-		if (scheme?.toLowerCase() !== 'bearer' || !token) {
-			throw unauthorizedError('Invalid Authorization format. Expected: Bearer <token>');
-		}
-
-		if (token !== config.apiToken) {
-			throw unauthorizedError('Invalid bearer token');
-		}
-
-		await next();
-	});
 
 	// ヘルスチェック（認証不要）
 	app.get('/health', (c) => {
@@ -94,7 +70,7 @@ export function createApp(config: EnvConfig): Hono {
 	app.route('/api/v1/system', systemRoutes);
 
 	// === 第2層: Blockchain ルート ===
-	const chainsRoutes = createChainsRoutes(k8sManager);
+	const chainsRoutes = createChainsRoutes(k8sManager, cryptomeriaManager);
 	const accountsRoutes = createAccountsRoutes(cryptomeriaManager);
 	const txRoutes = createTxRoutes(cryptomeriaManager, config);
 	const observeRoutes = createObserveRoutes(cryptomeriaManager);

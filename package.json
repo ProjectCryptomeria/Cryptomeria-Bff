@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:all": "concurrently --kill-others -n \"BFF,PF\" -c \"blue,magenta\" \"yarn dev\" \"yarn port-forward\"",
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.0.10",
+    "concurrently": "^9.2.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^4.0.18"

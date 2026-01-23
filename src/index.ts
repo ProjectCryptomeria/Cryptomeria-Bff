@@ -27,7 +27,7 @@ async function main(): Promise<void> {
 	console.log(`  - K8S_NAMESPACE: ${config.k8sNamespace}`);
 	console.log(`  - NODE_HOST: ${config.nodeHost}`);
 	console.log(`  - PORT: ${config.port}`);
-	console.log(`  - AUTH_DISABLED: ${config.authDisabled}`);
+
 	console.log(`  - DOWNSTREAM_TIMEOUT_MS: ${config.downstreamTimeoutMs}`);
 	console.log(`  - MAX_TX_BASE64_CHARS: ${config.maxTxBase64Chars}`);
 	console.log(`  - ENDPOINT_CACHE_TTL_MS: ${config.endpointCacheTtlMs}`);
@@ -73,11 +73,7 @@ async function main(): Promise<void> {
 			console.log('  POST /api/v1/utils/load/broadcast-batch   - Broadcast batch');
 			console.log('');
 
-			if (config.authDisabled) {
-				console.log('Authentication: disabled (AUTH_DISABLED=true)');
-			} else {
-				console.log('Authentication: Authorization: Bearer <API_TOKEN>');
-			}
+
 		}
 	);
 }

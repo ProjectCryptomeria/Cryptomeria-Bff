@@ -37,6 +37,7 @@ export interface JobStep {
     startedAt: string | null;
     finishedAt: string | null;
     message?: string;
+    output?: unknown;
 }
 
 /**
