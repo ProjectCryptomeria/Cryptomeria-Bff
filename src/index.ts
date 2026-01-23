@@ -7,6 +7,8 @@
 import { serve } from '@hono/node-server';
 import { loadEnvConfig } from './config/env.js';
 import { createApp } from './app.js';
+import { K8sManager } from './managers/k8s-manager.js';
+import { PortForwardManager } from './managers/portforward-manager.js';
 
 /**
  * サーバー起動
@@ -28,15 +30,28 @@ async function main(): Promise<void> {
 	console.log(`  - NODE_HOST: ${config.nodeHost}`);
 	console.log(`  - PORT: ${config.port}`);
 
-	console.log(`  - DOWNSTREAM_TIMEOUT_MS: ${config.downstreamTimeoutMs}`);
-	console.log(`  - MAX_TX_BASE64_CHARS: ${config.maxTxBase64Chars}`);
-	console.log(`  - ENDPOINT_CACHE_TTL_MS: ${config.endpointCacheTtlMs}`);
+	// ---------------------------------------------------------
+	// Port Forwarding の開始 (Dynamic)
+	// ---------------------------------------------------------
+	// K8sManagerを初期化してポートフォワードマネージャーに渡す
+	const k8sManager = new K8sManager(config);
+	const portForwarder = new PortForwardManager(k8sManager);
+
+	try {
+		// 非同期で開始（サーバー起動をブロックしない）
+		// ただし、初期ログが見やすいようにawaitしても良いが、
+		// 接続できない場合のタイムアウトを考慮してcatchしておく
+		await portForwarder.start();
+	} catch (error) {
+		console.warn('⚠️ Port forwarding failed to initialize.');
+		console.warn('   Running without automatic port-forwarding.');
+	}
 
 	// アプリケーション作成
 	const app = createApp(config);
 
 	// サーバー起動
-	serve(
+	const server = serve(
 		{
 			fetch: app.fetch,
 			port: config.port,
@@ -72,10 +87,32 @@ async function main(): Promise<void> {
 			console.log('  POST /api/v1/utils/metrics/throughput     - Measure throughput');
 			console.log('  POST /api/v1/utils/load/broadcast-batch   - Broadcast batch');
 			console.log('');
-
-
 		}
 	);
+
+	// ---------------------------------------------------------
+	// グレースフルシャットダウン (Ctrl+C対応)
+	// ---------------------------------------------------------
+	const shutdown = () => {
+		console.log('\nShutting down...');
+
+		// PortForwardの停止
+		portForwarder.stop();
+
+		// サーバー停止
+		server.close(() => {
+			console.log('Server closed.');
+			process.exit(0);
+		});
+
+		setTimeout(() => {
+			console.error('Forcing shutdown...');
+			process.exit(1);
+		}, 5000).unref();
+	};
+
+	process.on('SIGINT', shutdown);
+	process.on('SIGTERM', shutdown);
 }
 
 // 実行

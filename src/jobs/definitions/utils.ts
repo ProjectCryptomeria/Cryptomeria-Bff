@@ -1,11 +1,12 @@
 /**
  * Utilities ジョブ定義
  * P0-2: 6つのUtilitiesジョブ実装
+ * 修正: aggregateステップの型定義不足を解消 (txhash追加)
  */
 
 import type { CryptomeriaManager } from '../../managers/cryptomeria-manager.js';
 import type { K8sManager } from '../../managers/k8s-manager.js';
-import type { Job, JobDefinition } from '../types.js';
+import type { JobDefinition } from '../types.js';
 import { runPool, runPoolWithStopOnError, sleepWithSignal } from '../../lib/concurrency.js';
 import { nowISO } from '../../lib/time.js';
 
@@ -420,17 +421,40 @@ export function createUtilsJobDefinitions(
                                 txBytes,
                                 payload.broadcastMode as 'sync' | 'async' | 'commit'
                             );
-                            return { index, txhash: result.txhash };
+                            return {
+                                index,
+                                txhash: result.txhash,
+                                code: result.code,
+                                rawLog: result.rawLog
+                            };
                         },
                         signal
                     );
 
-                    const items = results.map((r) => ({
-                        index: r.index,
-                        txhash: r.ok ? r.value!.txhash : '',
-                        ok: r.ok,
-                        error: r.ok ? undefined : r.error,
-                    }));
+                    const items = results.map((r) => {
+                        if (r.ok) {
+                            const val = r.value!;
+                            return {
+                                index: val.index,
+                                txhash: val.txhash,
+                                connect: true,
+                                status: val.code === 0 ? 'success' : 'failed',
+                                code: val.code,
+                                log: val.rawLog,
+                                error: undefined
+                            };
+                        } else {
+                            return {
+                                index: r.index,
+                                txhash: '',
+                                connect: false,
+                                status: 'failed',
+                                code: undefined,
+                                log: undefined,
+                                error: r.error
+                            };
+                        }
+                    });
 
                     log(`Broadcast complete in ${Date.now() - startTime}ms`);
                     return { items, durationMs: Date.now() - startTime };
@@ -438,19 +462,37 @@ export function createUtilsJobDefinitions(
 
                 aggregate: async (job, stepIndex, _signal, log) => {
                     const prev = job.steps[stepIndex - 1];
+                    // 型アサーションの修正
                     const { items, durationMs } = prev.output as unknown as {
-                        items: { ok: boolean }[];
+                        items: {
+                            index: number;
+                            txhash: string; // <-- 追加
+                            connect: boolean;
+                            status: string;
+                            code?: number;
+                            log?: string;
+                            error?: string
+                        }[];
                         durationMs: number;
                     };
 
                     const total = items.length;
-                    const succeeded = items.filter((i) => i.ok).length;
+                    const succeeded = items.filter((i) => i.status === 'success').length;
                     const failed = total - succeeded;
 
-                    log(`Summary: total=${total}, succeeded=${succeeded}, failed=${failed}`);
+                    const connectionErrors = items.filter(i => !i.connect).length;
+                    const applicationErrors = items.filter(i => i.connect && i.status === 'failed').length;
+
+                    log(`Summary: total=${total}, succeeded=${succeeded}, failed=${failed} (conn=${connectionErrors}, app=${applicationErrors})`);
 
                     return {
-                        summary: { total, succeeded, failed, durationMs },
+                        summary: {
+                            total,
+                            succeeded,
+                            failed,
+                            details: { connectionErrors, applicationErrors },
+                            durationMs
+                        },
                         items,
                     };
                 },
@@ -459,7 +501,7 @@ export function createUtilsJobDefinitions(
                     clearPrivatePayload(job.jobId);
                     log('Broadcast batch complete');
                     const prev = job.steps[job.steps.length - 2]?.output ?? {};
-                    return { result: prev }; // Return result to populate job.result
+                    return { result: prev };
                 },
             },
         },
@@ -489,31 +531,64 @@ export function createUtilsJobDefinitions(
                                 txBytes,
                                 payload.broadcastMode as 'sync' | 'async' | 'commit'
                             );
-                            return { index, txhash: result.txhash, broadcastTime: Date.now() };
+                            return {
+                                index,
+                                txhash: result.txhash,
+                                code: result.code,
+                                rawLog: result.rawLog,
+                                broadcastTime: Date.now()
+                            };
                         },
                         signal
                     );
 
-                    const broadcastItems = results.map((r) => ({
-                        index: r.index,
-                        txhash: r.ok ? r.value!.txhash : '',
-                        ok: r.ok,
-                        broadcastTime: r.ok ? r.value!.broadcastTime : 0,
-                        error: r.ok ? undefined : r.error,
-                    }));
+                    const broadcastItems = results.map((r) => {
+                        if (r.ok) {
+                            const val = r.value!;
+                            return {
+                                index: val.index,
+                                txhash: val.txhash,
+                                connect: true,
+                                status: val.code === 0 ? 'success' : 'failed',
+                                code: val.code,
+                                log: val.rawLog,
+                                broadcastTime: val.broadcastTime,
+                                error: undefined
+                            };
+                        } else {
+                            return {
+                                index: r.index,
+                                txhash: '',
+                                connect: false,
+                                status: 'failed',
+                                code: undefined,
+                                log: undefined,
+                                broadcastTime: 0,
+                                error: r.error
+                            };
+                        }
+                    });
 
-                    log(`Broadcast phase complete, ${broadcastItems.filter((i) => i.ok).length} succeeded`);
+                    const successCount = broadcastItems.filter((i) => i.status === 'success').length;
+                    log(`Broadcast phase complete, ${successCount} succeeded`);
                     return { broadcastItems };
                 },
 
                 confirmBatch: async (job, stepIndex, signal, log) => {
                     const payload = getPrivatePayload<BroadcastAndConfirmPayload>(job.jobId)!;
                     const prev = job.steps[stepIndex - 1];
+                    // 型アサーションの修正
                     const { broadcastItems } = prev.output as unknown as {
-                        broadcastItems: { index: number; txhash: string; ok: boolean; broadcastTime: number }[];
+                        broadcastItems: {
+                            index: number;
+                            txhash: string; // <-- 追加
+                            connect: boolean;
+                            status: string;
+                            broadcastTime: number
+                        }[];
                     };
 
-                    const successfulBroadcasts = broadcastItems.filter((i) => i.ok && i.txhash);
+                    const successfulBroadcasts = broadcastItems.filter((i) => i.connect && i.status === 'success' && i.txhash);
                     log(`Confirming ${successfulBroadcasts.length} txs...`);
 
                     const confirmResults = await runPool(
@@ -546,24 +621,52 @@ export function createUtilsJobDefinitions(
                 },
 
                 aggregate: async (job, stepIndex, _signal, log) => {
-                    const prev = job.steps[stepIndex - 1];
-                    const { items } = prev.output as unknown as {
-                        items: { confirmed: boolean }[];
+                    const prev = job.steps[stepIndex - 1]; // confirmBatch output
+                    const { items: confirmItems } = prev.output as unknown as {
+                        items: { index: number; confirmed: boolean }[];
                     };
 
-                    const bcStep = job.steps[stepIndex - 2];
-                    const { broadcastItems } = bcStep.output as unknown as { broadcastItems: { ok: boolean }[] };
+                    const bcStep = job.steps[stepIndex - 2]; // broadcastBatch output
+                    // 型アサーションの修正: エラー原因だった箇所
+                    const { broadcastItems } = bcStep.output as unknown as {
+                        broadcastItems: {
+                            index: number;
+                            txhash: string; // <-- 必須: ここが漏れていたためエラーになっていました
+                            connect: boolean;
+                            status: string;
+                            code?: number;
+                            log?: string;
+                            error?: string
+                        }[]
+                    };
 
                     const total = broadcastItems.length;
-                    const broadcastSucceeded = broadcastItems.filter((i) => i.ok).length;
-                    const confirmed = items.filter((i) => i.confirmed).length;
-                    const failed = total - confirmed;
 
-                    log(`Summary: total=${total}, broadcast=${broadcastSucceeded}, confirmed=${confirmed}`);
+                    const finalItems = broadcastItems.map(bcItem => {
+                        const cfItem = confirmItems.find(c => c.index === bcItem.index);
+
+                        return {
+                            index: bcItem.index,
+                            txhash: bcItem.txhash,
+                            // Broadcast結果
+                            connect: bcItem.connect,
+                            broadcastStatus: bcItem.status,
+                            broadcastCode: bcItem.code,
+                            broadcastLog: bcItem.log,
+                            broadcastError: bcItem.error,
+                            // Confirm結果
+                            confirmed: cfItem ? cfItem.confirmed : false,
+                        };
+                    });
+
+                    const finalSucceeded = finalItems.filter(i => i.broadcastStatus === 'success' && i.confirmed).length;
+                    const failed = total - finalSucceeded;
+
+                    log(`Summary: total=${total}, finalSucceeded=${finalSucceeded}, failed=${failed}`);
 
                     return {
-                        summary: { total, succeeded: confirmed, failed, durationMs: 0 },
-                        items,
+                        summary: { total, succeeded: finalSucceeded, failed, durationMs: 0 },
+                        items: finalItems,
                     };
                 },
 
