@@ -1,5 +1,6 @@
 /**
  * Tx ルート - simulate / broadcast / tx確認
+ * P0-1: lib/errors.ts統一
  */
 
 import { Hono } from 'hono';
@@ -7,7 +8,7 @@ import type { CryptomeriaManager } from '../managers/cryptomeria-manager.js';
 import type { EnvConfig } from '../config/env.js';
 import { SimulateRequestSchema, BroadcastRequestSchema } from '../types/api.js';
 import { isValidChainId } from '../types/chains.js';
-import { invalidInputError, payloadTooLargeError } from '../types/errors.js';
+import { invalidArgumentError } from '../lib/errors.js';
 
 /**
  * Txルートを作成
@@ -24,7 +25,7 @@ export function createTxRoutes(cryptomeriaManager: CryptomeriaManager, config: E
 
 		// chainIdバリデーション
 		if (!isValidChainId(chainId)) {
-			throw invalidInputError('Invalid chainId format', { chainId });
+			throw invalidArgumentError('Invalid chainId format', { chainId });
 		}
 
 		// リクエストボディ取得
@@ -32,7 +33,7 @@ export function createTxRoutes(cryptomeriaManager: CryptomeriaManager, config: E
 		const parseResult = SimulateRequestSchema.safeParse(body);
 
 		if (!parseResult.success) {
-			throw invalidInputError('Invalid request body', {
+			throw invalidArgumentError('Invalid request body', {
 				errors: parseResult.error.errors,
 			});
 		}
@@ -41,8 +42,9 @@ export function createTxRoutes(cryptomeriaManager: CryptomeriaManager, config: E
 
 		// サイズ制限チェック
 		if (txBytesBase64.length > config.maxTxBase64Chars) {
-			throw payloadTooLargeError('txBytesBase64 exceeds limit', {
+			throw invalidArgumentError('txBytesBase64 exceeds limit', {
 				maxChars: config.maxTxBase64Chars,
+				field: 'txBytesBase64',
 			});
 		}
 
@@ -59,7 +61,7 @@ export function createTxRoutes(cryptomeriaManager: CryptomeriaManager, config: E
 
 		// chainIdバリデーション
 		if (!isValidChainId(chainId)) {
-			throw invalidInputError('Invalid chainId format', { chainId });
+			throw invalidArgumentError('Invalid chainId format', { chainId });
 		}
 
 		// リクエストボディ取得
@@ -67,7 +69,7 @@ export function createTxRoutes(cryptomeriaManager: CryptomeriaManager, config: E
 		const parseResult = BroadcastRequestSchema.safeParse(body);
 
 		if (!parseResult.success) {
-			throw invalidInputError('Invalid request body', {
+			throw invalidArgumentError('Invalid request body', {
 				errors: parseResult.error.errors,
 			});
 		}
@@ -76,8 +78,9 @@ export function createTxRoutes(cryptomeriaManager: CryptomeriaManager, config: E
 
 		// サイズ制限チェック
 		if (txBytesBase64.length > config.maxTxBase64Chars) {
-			throw payloadTooLargeError('txBytesBase64 exceeds limit', {
+			throw invalidArgumentError('txBytesBase64 exceeds limit', {
 				maxChars: config.maxTxBase64Chars,
+				field: 'txBytesBase64',
 			});
 		}
 
@@ -101,11 +104,11 @@ export function createTxRoutes(cryptomeriaManager: CryptomeriaManager, config: E
 
 		// chainIdバリデーション
 		if (!isValidChainId(chainId)) {
-			throw invalidInputError('Invalid chainId format', { chainId });
+			throw invalidArgumentError('Invalid chainId format', { chainId });
 		}
 
 		if (!txhash || txhash.trim() === '') {
-			throw invalidInputError('txhash is required');
+			throw invalidArgumentError('txhash is required', { field: 'txhash' });
 		}
 
 		const result = await cryptomeriaManager.getTx(chainId, txhash);

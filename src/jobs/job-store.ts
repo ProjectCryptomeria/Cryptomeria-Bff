@@ -173,12 +173,33 @@ export class InMemoryJobStore {
 
     /**
      * ログを取得
+     * P2-1: sinceSeconds 対応 - ログにはタイムスタンプ prefix あり ([HH:mm:ss.sss])
      */
-    getLogs(jobId: string, tailLines: number = 200): string {
+    getLogs(jobId: string, tailLines: number = 200, sinceSeconds?: number): string {
         const log = this.logs.get(jobId);
         if (!log) return '';
 
-        const lines = tailLines > 0 ? log.logs.slice(-tailLines) : log.logs;
+        let lines = log.logs;
+
+        // P2-1: sinceSeconds フィルタリング
+        if (sinceSeconds !== undefined && sinceSeconds > 0) {
+            const cutoffTime = Date.now() - (sinceSeconds * 1000);
+            lines = lines.filter(line => {
+                // ログ形式: [HH:mm:ss.sss] message
+                const match = line.match(/^\[(\d{2}:\d{2}:\d{2}\.\d{3})\]/);
+                if (!match) return true; // タイムスタンプがない行は含める
+                // 今日の日付と組み合わせて比較（簡易実装）
+                const today = new Date().toISOString().substring(0, 10);
+                const logTime = new Date(`${today}T${match[1]}Z`).getTime();
+                return logTime >= cutoffTime;
+            });
+        }
+
+        // tailLines でスライス
+        if (tailLines > 0 && lines.length > tailLines) {
+            lines = lines.slice(-tailLines);
+        }
+
         return lines.join('\n');
     }
 
@@ -207,6 +228,13 @@ export class InMemoryJobStore {
             }
         }
         return false;
+    }
+
+    /**
+     * 実行中のジョブ数を取得（alias for countRunning）
+     */
+    getRunningCount(scope: JobScope): number {
+        return this.countRunning(scope);
     }
 
     /**

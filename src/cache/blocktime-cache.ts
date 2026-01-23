@@ -70,13 +70,16 @@ export class BlocktimeCache {
 
     /**
      * Blocktimeを計算（キャッシュ付き）
+     * P1-2: useCache と ttlMsOverride 対応
      */
     async getBlocktime(
         chainId: string,
         window: number,
         latestHeight: number,
-        fetchBlocks: (startHeight: number, endHeight: number) => Promise<{ height: number; time: string }[]>
+        fetchBlocks: (startHeight: number, endHeight: number) => Promise<{ height: number; time: string }[]>,
+        options?: { useCache?: boolean; ttlMsOverride?: number }
     ): Promise<BlocktimeResult> {
+        const useCache = options?.useCache ?? true;
         // Window validation
         if (window < 2) {
             throw new Error('window must be >= 2');
@@ -89,7 +92,8 @@ export class BlocktimeCache {
         const cached = this.cache.get(cacheKey);
 
         // キャッシュが有効かつ同じlatestHeightなら cached=true で返す
-        if (cached && Date.now() < cached.expiresAt && cached.latestHeightUsed === latestHeight) {
+        // useCache=false の場合はキャッシュを参照しない
+        if (useCache && cached && Date.now() < cached.expiresAt && cached.latestHeightUsed === latestHeight) {
             return {
                 ...cached.result,
                 cached: true,
@@ -160,10 +164,12 @@ export class BlocktimeCache {
         };
 
         // キャッシュ更新
+        // P1-2: ttlMsOverride が指定されていればそれを使用
+        const ttlMs = options?.ttlMsOverride ?? this.ttlMs;
         this.cache.set(cacheKey, {
             latestHeightUsed: latestHeight,
             result,
-            expiresAt: Date.now() + this.ttlMs,
+            expiresAt: Date.now() + ttlMs,
         });
 
         return result;

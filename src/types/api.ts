@@ -33,11 +33,17 @@ export interface SimulateResponse {
 
 /**
  * Broadcast リクエスト
+ * P0-4: broadcastMode と mode の両方を受け付け（broadcastMode優先）
  */
 export const BroadcastRequestSchema = z.object({
 	txBytesBase64: z.string().min(1, 'txBytesBase64 is required'),
-	mode: z.enum(['sync', 'async', 'commit']).optional().default('sync'),
-});
+	broadcastMode: z.enum(['sync', 'async', 'commit']).optional(),
+	mode: z.enum(['sync', 'async', 'commit']).optional(),
+}).transform((data) => ({
+	txBytesBase64: data.txBytesBase64,
+	// broadcastMode優先、なければmode、デフォルトはsync
+	mode: data.broadcastMode ?? data.mode ?? 'sync',
+}));
 
 export type BroadcastRequest = z.infer<typeof BroadcastRequestSchema>;
 
@@ -48,10 +54,16 @@ export type BroadcastMode = 'sync' | 'async' | 'commit';
 
 /**
  * Broadcast レスポンス
+ * P0-4: 必須フィールド追加（height, code, rawLog, gasWanted, gasUsed）
  */
 export interface BroadcastResponse {
 	txhash: string;
-	broadcastResult: unknown;
+	height?: number;
+	code?: number;
+	rawLog?: string;
+	gasWanted?: string;
+	gasUsed?: string;
+	broadcastResult?: unknown;
 	observedAt: string;
 }
 

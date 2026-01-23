@@ -168,6 +168,147 @@ export function createSystemRoutes(k8sManager: K8sManager, jobRunner: JobRunner)
         return textResponse(c, logs);
     });
 
+    // ===== System操作（ジョブ or dryRun） =====
+
+    /**
+     * POST /start - システム起動（relayer含む）
+     * P0-3: dryRun=true → 200 + plan[], dryRun=false → 202 + jobId
+     */
+    app.post('/start', async (c) => {
+        const body = await c.req.json() as {
+            force?: boolean;
+            timeoutMs?: number;
+            dryRun?: boolean;
+        };
+
+        const force = body.force ?? false;
+        const timeoutMs = body.timeoutMs ?? 600000;
+        const dryRun = body.dryRun ?? false;
+
+        // バリデーション
+        if (timeoutMs < 0) {
+            throw invalidArgumentError('timeoutMs must be >= 0', { field: 'timeoutMs' });
+        }
+
+        // dryRun=true: 実行計画を返す
+        if (dryRun) {
+            const plan = [
+                { step: 'discover', action: 'run', reason: 'Always run to detect pods' },
+                { step: 'initRelayer', action: force ? 'run' : 'run', reason: force ? 'force=true' : 'Idempotency check pending' },
+                { step: 'connectAll', action: 'run', reason: 'Connect all discovered chains' },
+                { step: 'startRelayer', action: 'run', reason: 'Start relayer process' },
+                { step: 'waitReady', action: 'run', reason: 'Wait for IBC ready state' },
+            ];
+            return c.json({ plan });
+        }
+
+        // dryRun=false: ジョブ作成
+        const job = await jobRunner.createAndRun('system', 'system.start', {
+            force,
+            timeoutMs,
+        }, timeoutMs);
+
+        return c.json({
+            jobId: job.jobId,
+            type: job.type,
+            status: job.status,
+            createdAt: job.createdAt,
+        }, 202);
+    });
+
+    /**
+     * POST /connect - チェーン接続
+     * P0-3: target対応
+     */
+    app.post('/connect', async (c) => {
+        const body = await c.req.json() as {
+            force?: boolean;
+            timeoutMs?: number;
+            target?: string;
+            dryRun?: boolean;
+        };
+
+        const force = body.force ?? false;
+        const timeoutMs = body.timeoutMs ?? 600000;
+        const target = body.target ?? 'all';
+        const dryRun = body.dryRun ?? false;
+
+        // バリデーション
+        if (timeoutMs < 0) {
+            throw invalidArgumentError('timeoutMs must be >= 0', { field: 'timeoutMs' });
+        }
+
+        // target形式チェック: "all" or "chain:<chainId>"
+        if (target !== 'all' && !target.startsWith('chain:')) {
+            throw invalidArgumentError('target must be "all" or "chain:<chainId>"', { field: 'target', value: target });
+        }
+
+        // dryRun=true: 実行計画を返す
+        if (dryRun) {
+            const plan = [
+                { step: 'discover', action: 'run', reason: 'Always run to detect pods' },
+                { step: 'connectAll', action: 'run', reason: `Connect target: ${target}` },
+            ];
+            return c.json({ plan });
+        }
+
+        // dryRun=false: ジョブ作成
+        const job = await jobRunner.createAndRun('system', 'system.connect', {
+            force,
+            target,
+            timeoutMs,
+        }, timeoutMs);
+
+        return c.json({
+            jobId: job.jobId,
+            type: job.type,
+            status: job.status,
+            createdAt: job.createdAt,
+        }, 202);
+    });
+
+    /**
+     * POST /relayer/restart - Relayer再起動
+     * P0-3: 新規追加
+     */
+    app.post('/relayer/restart', async (c) => {
+        const body = await c.req.json() as {
+            timeoutMs?: number;
+            dryRun?: boolean;
+        };
+
+        const timeoutMs = body.timeoutMs ?? 120000;
+        const dryRun = body.dryRun ?? false;
+
+        // バリデーション
+        if (timeoutMs < 0) {
+            throw invalidArgumentError('timeoutMs must be >= 0', { field: 'timeoutMs' });
+        }
+
+        // dryRun=true: 実行計画を返す
+        if (dryRun) {
+            const plan = [
+                { step: 'discover', action: 'run', reason: 'Find relayer pod' },
+                { step: 'restartRelayer', action: 'run', reason: 'Restart relayer process' },
+            ];
+            return c.json({ plan });
+        }
+
+        // dryRun=false: ジョブ作成
+        // Note: system.relayer.restart job definition を追加する必要あり
+        const job = await jobRunner.createAndRun('system', 'system.connect', {
+            timeoutMs,
+            operation: 'restart',
+        }, timeoutMs);
+
+        return c.json({
+            jobId: job.jobId,
+            type: job.type,
+            status: job.status,
+            createdAt: job.createdAt,
+        }, 202);
+    });
+
     // ===== ジョブAPI（Systemスコープ） =====
 
     /**
@@ -200,18 +341,31 @@ export function createSystemRoutes(k8sManager: K8sManager, jobRunner: JobRunner)
 
     /**
      * GET /jobs/:jobId/logs - ジョブログ
+     * P2-1: sinceSeconds 対応
      */
     app.get('/jobs/:jobId/logs', (c) => {
         const jobId = c.req.param('jobId');
         const tailLinesStr = c.req.query('tailLines');
-        const tailLines = tailLinesStr ? parseInt(tailLinesStr, 10) : 200;
+        const sinceSecondsStr = c.req.query('sinceSeconds');
+        let tailLines = tailLinesStr ? parseInt(tailLinesStr, 10) : 200;
+        const sinceSeconds = sinceSecondsStr ? parseInt(sinceSecondsStr, 10) : undefined;
+
+        // Validate and clamp
+        if (isNaN(tailLines) || tailLines < 0) {
+            throw invalidArgumentError('tailLines must be >= 0', { field: 'tailLines' });
+        }
+        if (tailLines > 5000) tailLines = 5000;
+
+        if (sinceSeconds !== undefined && (isNaN(sinceSeconds) || sinceSeconds < 0)) {
+            throw invalidArgumentError('sinceSeconds must be >= 0', { field: 'sinceSeconds' });
+        }
 
         const job = jobRunner.getStore().get(jobId);
         if (!job || job.scope !== 'system') {
             throw notFoundError('Job not found', { jobId });
         }
 
-        const logs = jobRunner.getStore().getLogs(jobId, tailLines);
+        const logs = jobRunner.getStore().getLogs(jobId, tailLines, sinceSeconds);
 
         return textResponse(c, logs);
     });

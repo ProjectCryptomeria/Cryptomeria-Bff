@@ -2,6 +2,7 @@
  * CryptomeriaManager - Cryptomeria REST/RPC操作マネージャー
  * 
  * 署名に必要な情報の取得、simulate、broadcast、観測機能を提供する
+ * P0-1: lib/errors.ts統一
  */
 
 import type { EnvConfig } from '../config/env.js';
@@ -16,7 +17,7 @@ import type {
 	NodeStatus,
 	BlockInfo,
 } from '../types/api.js';
-import { badGatewayError, gatewayTimeoutError, notFoundError } from '../types/errors.js';
+import { notFoundError, upstreamError, timeoutError } from '../lib/errors.js';
 import { K8sManager } from './k8s-manager.js';
 import { createHash } from 'crypto';
 
@@ -97,6 +98,7 @@ export class CryptomeriaManager {
 
 	/**
 	 * 署名済みTxをブロードキャスト
+	 * P0-4: tx_responseから必須フィールドをパース
 	 */
 	async broadcastTx(
 		chainId: string,
@@ -122,15 +124,23 @@ export class CryptomeriaManager {
 		const data = await response.json() as {
 			tx_response?: {
 				txhash?: string;
+				height?: string;
 				code?: number;
 				raw_log?: string;
+				gas_wanted?: string;
+				gas_used?: string;
 			};
 		};
 
-		const txhash = data.tx_response?.txhash ?? '';
+		const txResponse = data.tx_response ?? {};
 
 		return {
-			txhash,
+			txhash: txResponse.txhash ?? '',
+			height: txResponse.height ? parseInt(txResponse.height, 10) : undefined,
+			code: txResponse.code,
+			rawLog: txResponse.raw_log,
+			gasWanted: txResponse.gas_wanted,
+			gasUsed: txResponse.gas_used,
 			broadcastResult: data,
 			observedAt,
 		};
@@ -252,6 +262,37 @@ export class CryptomeriaManager {
 	}
 
 	/**
+	 * 指定高さのブロックのトランザクション一覧を取得（RPC）
+	 * P0-5: 新規追加
+	 * @param format - 'hash' の場合はtx hashを返す、'base64' の場合はbase64エンコードのtxを返す
+	 */
+	async getBlockTxs(chainId: string, height: string, format: 'hash' | 'base64' = 'hash'): Promise<{ height: string; txs: string[] }> {
+		const endpoints = await this.k8sManager.resolveChainEndpoints(chainId);
+		const rpcBase = endpoints.rpcBase ?? endpoints.restBase;
+		const url = `${rpcBase}/block?height=${height}`;
+
+		const response = await this.fetchWithTimeout(url);
+		const data = await response.json() as {
+			result?: {
+				block?: {
+					header?: { height?: string };
+					data?: { txs?: string[] };
+				};
+			};
+		};
+
+		const blockHeight = data.result?.block?.header?.height ?? height;
+		const txsBase64 = data.result?.block?.data?.txs ?? [];
+
+		const txs = format === 'hash'
+			? txsBase64.map(tx => this.computeTxHash(tx))
+			: txsBase64;
+
+		return { height: blockHeight, txs };
+	}
+
+
+	/**
 	 * ブロックレスポンスをパース
 	 */
 	private async parseBlockResponse(url: string): Promise<BlockInfo> {
@@ -317,7 +358,7 @@ export class CryptomeriaManager {
 
 			if (!response.ok) {
 				const errorBody = await response.text();
-				throw badGatewayError(`Downstream error: ${response.status}`, {
+				throw upstreamError(`Downstream error: ${response.status}`, {
 					status: response.status,
 					body: errorBody.substring(0, 500),
 				});
@@ -326,12 +367,12 @@ export class CryptomeriaManager {
 			return response;
 		} catch (error) {
 			if (error instanceof Error && error.name === 'AbortError') {
-				throw gatewayTimeoutError('Downstream request timeout');
+				throw timeoutError('Downstream request timeout');
 			}
 			if (error instanceof Error && error.name === 'ApiError') {
 				throw error;
 			}
-			throw badGatewayError('Downstream request failed', {
+			throw upstreamError('Downstream request failed', {
 				error: String(error),
 			});
 		} finally {

@@ -1,11 +1,12 @@
 /**
  * Accounts ルート - アカウント情報API
+ * P0-1: lib/errors.ts統一
  */
 
 import { Hono } from 'hono';
 import type { CryptomeriaManager } from '../managers/cryptomeria-manager.js';
 import { isValidChainId } from '../types/chains.js';
-import { invalidInputError } from '../types/errors.js';
+import { invalidArgumentError } from '../lib/errors.js';
 
 /**
  * Accountsルートを作成
@@ -23,11 +24,11 @@ export function createAccountsRoutes(cryptomeriaManager: CryptomeriaManager): Ho
 
 		// バリデーション
 		if (!isValidChainId(chainId)) {
-			throw invalidInputError('Invalid chainId format', { chainId });
+			throw invalidArgumentError('Invalid chainId format', { chainId });
 		}
 
 		if (!address || address.trim() === '') {
-			throw invalidInputError('address is required');
+			throw invalidArgumentError('address is required', { field: 'address' });
 		}
 
 		const accountInfo = await cryptomeriaManager.getAccount(chainId, address);

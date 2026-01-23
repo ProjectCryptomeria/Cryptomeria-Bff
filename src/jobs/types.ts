@@ -101,13 +101,15 @@ export interface ListJobsQuery {
 
 /**
  * ステップ実行関数の型
+ * result フィールドに任意のデータを格納可能
+ * 互換性のため、戻り値全体も任意フィールドを持てる
  */
 export type StepExecutor = (
     job: Job,
     stepIndex: number,
     abortSignal: AbortSignal,
     appendLog: (message: string) => void
-) => Promise<{ skipped?: boolean; message?: string; result?: unknown }>;
+) => Promise<{ skipped?: boolean; message?: string; result?: unknown;[key: string]: unknown }>;
 
 /**
  * ジョブ定義（ステップ実行関数のマップ）

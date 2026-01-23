@@ -25,6 +25,9 @@ import { createObserveRoutes } from './routes/observe.js';
 import { createSystemRoutes } from './routes/system.js';
 import { createUtilsRoutes } from './routes/utils.js';
 
+// Job definitions
+import { createUtilsJobDefinitions } from './jobs/definitions/utils.js';
+
 import { ApiError } from './lib/errors.js';
 import { ApiError as LegacyApiError, unauthorizedError, internalError } from './types/errors.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
@@ -96,7 +99,7 @@ export function createApp(config: EnvConfig): Hono {
 	app.route('/api/v1/chains', observeRoutes);
 
 	// === 第3層: Utilities ルート ===
-	const utilsRoutes = createUtilsRoutes(cryptomeriaManager, jobRunner);
+	const utilsRoutes = createUtilsRoutes(cryptomeriaManager, jobRunner, config);
 	app.route('/api/v1/utils', utilsRoutes);
 
 	// グローバルエラーハンドラー
@@ -137,13 +140,13 @@ export function createApp(config: EnvConfig): Hono {
 }
 
 /**
- * ジョブ定義を登録（スタブ実装）
- * 実際のステップ実行ロジックは別途実装
+ * ジョブ定義を登録
+ * P0-2: 実際の実装を含むジョブ定義
  */
 function registerJobDefinitions(
 	jobRunner: JobRunner,
-	_cryptomeriaManager: CryptomeriaManager,
-	_k8sManager: K8sManager
+	cryptomeriaManager: CryptomeriaManager,
+	k8sManager: K8sManager
 ): void {
 	// System jobs
 	jobRunner.registerDefinition('system.start', {
@@ -186,65 +189,10 @@ function registerJobDefinitions(
 		},
 	});
 
-	// Utils jobs (stub implementations)
-	jobRunner.registerDefinition('utils.observe.tx-confirmation', {
-		steps: ['poll'],
-		executors: {
-			poll: async (_job, _stepIndex, _signal, log) => {
-				log('Polling for tx confirmation...');
-				return { message: 'Tx confirmed', result: { confirmed: true } };
-			},
-		},
-	});
-
-	jobRunner.registerDefinition('utils.observe.tx-confirmation-batch', {
-		steps: ['pollBatch'],
-		executors: {
-			pollBatch: async (_job, _stepIndex, _signal, log) => {
-				log('Polling for batch tx confirmations...');
-				return { message: 'Batch complete', result: { total: 0, succeeded: 0, failed: 0 } };
-			},
-		},
-	});
-
-	jobRunner.registerDefinition('utils.metrics.throughput', {
-		steps: ['calculate'],
-		executors: {
-			calculate: async (_job, _stepIndex, _signal, log) => {
-				log('Calculating throughput...');
-				return { message: 'Throughput calculated', result: { tps: 0 } };
-			},
-		},
-	});
-
-	jobRunner.registerDefinition('utils.metrics.resource-snapshot', {
-		steps: ['collect'],
-		executors: {
-			collect: async (_job, _stepIndex, _signal, log) => {
-				log('Collecting resource snapshot...');
-				return { message: 'Snapshot collected', result: { observedAt: new Date().toISOString() } };
-			},
-		},
-	});
-
-	jobRunner.registerDefinition('utils.load.broadcast-batch', {
-		steps: ['broadcast'],
-		executors: {
-			broadcast: async (_job, _stepIndex, _signal, log) => {
-				log('Broadcasting batch...');
-				return { message: 'Broadcast complete', result: { total: 0, succeeded: 0 } };
-			},
-		},
-	});
-
-	jobRunner.registerDefinition('utils.load.broadcast-and-confirm', {
-		steps: ['broadcastAndConfirm'],
-		executors: {
-			broadcastAndConfirm: async (_job, _stepIndex, _signal, log) => {
-				log('Broadcasting and confirming...');
-				return { message: 'Complete', result: { total: 0, confirmed: 0 } };
-			},
-		},
-	});
+	// Utils jobs - use real implementations from definitions module
+	const utilsDefinitions = createUtilsJobDefinitions(cryptomeriaManager, k8sManager);
+	for (const [type, definition] of Object.entries(utilsDefinitions)) {
+		jobRunner.registerDefinition(type, definition);
+	}
 }
 

@@ -1,17 +1,31 @@
 /**
  * Cryptomeria-BFF v1 APIテストランナー
- * 
- * APIテスト要件書に基づいた包括的なテスト
- * 
- * 使用方法:
- *   yarn test              # 全テスト実行
- *   yarn test layer1       # 第1層のみ
- *   yarn test layer2       # 第2層のみ
- *   yarn test layer3       # 第3層のみ
- *   yarn test jobs         # ジョブ系のみ
+ * * APIテスト要件書に基づいた包括的なテスト
+ * * 使用方法:
+ * yarn test              # 全テスト実行
+ * yarn test layer1       # 第1層のみ
+ * yarn test layer2       # 第2層のみ
+ * yarn test layer3       # 第3層のみ
+ * yarn test jobs         # ジョブ系のみ
  */
 import { getConfig, type TestConfig } from './config.js';
-import { TestCounter, hasField, printHeader, printTest, request } from './utils.js';
+import { TestCounter, printHeader, printTest, request } from './utils.js';
+
+// ============================================================
+// 型定義とヘルパー (Type Definitions & Helpers)
+// ============================================================
+
+// processオブジェクトの簡易型定義（@types/nodeがない環境用）
+declare const process: {
+	argv: string[];
+	exit: (code: number) => void;
+};
+
+// オブジェクトがキーバリュー形式（Record）か判定する型ガード
+// これを通すことで、unknown型のオブジェクトに対しても安全にプロパティアクセスが可能になります
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
+}
 
 // 色定義
 const colors = {
@@ -32,8 +46,10 @@ async function testSystemStatus(config: TestConfig, counter: TestCounter) {
 	// GET /api/v1/system/status
 	printTest('システムステータス取得', 'GET /api/v1/system/status');
 	const res = await request(config, 'GET', '/api/v1/system/status');
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'ok') && hasField(res.body?.data, 'namespace')) {
+	// isRecord(body) で body がオブジェクトであることを保証し、プロパティアクセスを可能にする
+	if (res.status === 200 && isRecord(body) && body.ok && isRecord(body.data) && body.data.namespace) {
 		counter.pass('システムステータス取得', '/system/status', 'ok=true, namespace確認', res.bodyText);
 	} else if (res.status === 503) {
 		counter.skip('システムステータス取得', '/system/status', 'K8s unavailable - K8s環境が必要', res.bodyText);
@@ -45,8 +61,9 @@ async function testSystemStatus(config: TestConfig, counter: TestCounter) {
 async function testSystemPreflight(config: TestConfig, counter: TestCounter) {
 	printTest('preflight取得', 'GET /api/v1/system/preflight');
 	const res = await request(config, 'GET', '/api/v1/system/preflight');
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'ok') && hasField(res.body?.data, 'overallOk')) {
+	if (res.status === 200 && isRecord(body) && body.ok && isRecord(body.data) && body.data.overallOk !== undefined) {
 		counter.pass('preflight取得', '/system/preflight', 'ok=true, overallOk確認', res.bodyText);
 	} else if (res.status === 503) {
 		counter.skip('preflight取得', '/system/preflight', 'K8s unavailable', res.bodyText);
@@ -58,8 +75,9 @@ async function testSystemPreflight(config: TestConfig, counter: TestCounter) {
 async function testSystemTopology(config: TestConfig, counter: TestCounter) {
 	printTest('トポロジー取得', 'GET /api/v1/system/topology');
 	const res = await request(config, 'GET', '/api/v1/system/topology');
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'ok')) {
+	if (res.status === 200 && isRecord(body) && body.ok) {
 		counter.pass('トポロジー取得', '/system/topology', 'ok=true確認', res.bodyText);
 	} else if (res.status === 503) {
 		counter.skip('トポロジー取得', '/system/topology', 'K8s unavailable', res.bodyText);
@@ -71,8 +89,9 @@ async function testSystemTopology(config: TestConfig, counter: TestCounter) {
 async function testSystemPods(config: TestConfig, counter: TestCounter) {
 	printTest('Pod一覧取得', 'GET /api/v1/system/k8s/pods');
 	const res = await request(config, 'GET', '/api/v1/system/k8s/pods');
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'ok') && hasField(res.body?.data, 'items')) {
+	if (res.status === 200 && isRecord(body) && body.ok && isRecord(body.data) && Array.isArray(body.data.items)) {
 		counter.pass('Pod一覧取得', '/system/k8s/pods', 'ok=true, items確認', res.bodyText);
 	} else if (res.status === 503) {
 		counter.skip('Pod一覧取得', '/system/k8s/pods', 'K8s unavailable', res.bodyText);
@@ -84,8 +103,9 @@ async function testSystemPods(config: TestConfig, counter: TestCounter) {
 async function testSystemJobs(config: TestConfig, counter: TestCounter) {
 	printTest('Systemジョブ一覧', 'GET /api/v1/system/jobs');
 	const res = await request(config, 'GET', '/api/v1/system/jobs');
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'items')) {
+	if (res.status === 200 && isRecord(body) && Array.isArray(body.items)) {
 		counter.pass('Systemジョブ一覧', '/system/jobs', 'items配列確認', res.bodyText);
 	} else {
 		counter.fail('Systemジョブ一覧', '/system/jobs', `期待ステータス200、実際: ${res.status}`, res.bodyText);
@@ -110,8 +130,9 @@ async function testChainsDiscovery(config: TestConfig, counter: TestCounter) {
 	// GET /api/v1/chains
 	printTest('チェーン一覧取得', 'GET /api/v1/chains');
 	let res = await request(config, 'GET', '/api/v1/chains');
+	let body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'chains')) {
+	if (res.status === 200 && isRecord(body) && Array.isArray(body.chains)) {
 		counter.pass('チェーン一覧取得', '/chains', 'chains配列確認', res.bodyText);
 	} else {
 		counter.fail('チェーン一覧取得', '/chains', `期待ステータス200、実際: ${res.status}`, res.bodyText);
@@ -120,8 +141,9 @@ async function testChainsDiscovery(config: TestConfig, counter: TestCounter) {
 	// GET /api/v1/chains/:chainId/info
 	printTest('チェーン情報取得', `GET /api/v1/chains/${config.chainId}/info`);
 	res = await request(config, 'GET', `/api/v1/chains/${config.chainId}/info`);
+	body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'chainId')) {
+	if (res.status === 200 && isRecord(body) && body.chainId) {
 		counter.pass('チェーン情報取得', `/chains/${config.chainId}/info`, 'chainId確認', res.bodyText);
 	} else if (res.status === 400) {
 		counter.pass('チェーン情報取得', `/chains/${config.chainId}/info`, '400（chainId不明）- 正常なエラー', res.bodyText);
@@ -135,14 +157,17 @@ async function testChainsDiscovery(config: TestConfig, counter: TestCounter) {
 async function testChainsBlocktime(config: TestConfig, counter: TestCounter) {
 	printTest('ブロックタイム取得', `GET /api/v1/chains/${config.chainId}/blocktime`);
 	const res = await request(config, 'GET', `/api/v1/chains/${config.chainId}/blocktime`);
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'stats')) {
+	if (res.status === 200 && isRecord(body) && isRecord(body.stats)) {
 		counter.pass('ブロックタイム取得', `/chains/${config.chainId}/blocktime`, 'stats確認', res.bodyText);
 
 		// キャッシュテスト: 2回目の呼び出し
 		printTest('ブロックタイムキャッシュ', `GET /api/v1/chains/${config.chainId}/blocktime (2nd)`);
 		const res2 = await request(config, 'GET', `/api/v1/chains/${config.chainId}/blocktime`);
-		if (res2.status === 200 && res2.body?.cached === true) {
+		const body2 = res2.body;
+
+		if (res2.status === 200 && isRecord(body2) && body2.cached === true) {
 			counter.pass('ブロックタイムキャッシュ', 'blocktime cache', 'cached=true確認', res2.bodyText);
 		} else if (res2.status === 200) {
 			counter.pass('ブロックタイムキャッシュ', 'blocktime cache', '2回目取得成功（キャッシュはheight依存）', res2.bodyText);
@@ -177,17 +202,20 @@ async function testUtilsJobCreation(config: TestConfig, counter: TestCounter) {
 		include: ['systemStatus', 'pods'],
 		timeoutMs: 10000,
 	});
+	const body = res.body;
 
-	if (res.status === 202 && hasField(res.body, 'jobId')) {
+	// 型ガードを使用して jobId へのアクセスを安全にする
+	if (res.status === 202 && isRecord(body) && typeof body.jobId === 'string') {
 		counter.pass('リソーススナップショット', '/utils/metrics/resource-snapshot', '202 + jobId確認', res.bodyText);
 
 		// ジョブ詳細確認
-		const jobId = res.body.jobId;
+		const jobId = body.jobId;
 		printTest('ジョブ詳細確認', `GET /api/v1/utils/jobs/${jobId}`);
 		const jobRes = await request(config, 'GET', `/api/v1/utils/jobs/${jobId}`);
+		const jobBody = jobRes.body;
 
-		if (jobRes.status === 200 && hasField(jobRes.body, 'status')) {
-			counter.pass('ジョブ詳細確認', `/utils/jobs/${jobId}`, `status=${jobRes.body.status}確認`, jobRes.bodyText);
+		if (jobRes.status === 200 && isRecord(jobBody) && jobBody.status) {
+			counter.pass('ジョブ詳細確認', `/utils/jobs/${jobId}`, `status=${jobBody.status}確認`, jobRes.bodyText);
 		} else {
 			counter.fail('ジョブ詳細確認', `/utils/jobs/${jobId}`, `期待200、実際: ${jobRes.status}`, jobRes.bodyText);
 		}
@@ -205,8 +233,9 @@ async function testUtilsValidation(config: TestConfig, counter: TestCounter) {
 		chainId: config.chainId,
 		window: 1, // 不正: 2未満
 	});
+	const body = res.body;
 
-	if (res.status === 400 && hasField(res.body, 'error')) {
+	if (res.status === 400 && isRecord(body) && body.error) {
 		counter.pass('throughput異常入力', 'window=1', '400 INVALID_ARGUMENT確認', res.bodyText);
 	} else {
 		counter.fail('throughput異常入力', 'window=1', `期待400、実際: ${res.status}`, res.bodyText);
@@ -216,8 +245,9 @@ async function testUtilsValidation(config: TestConfig, counter: TestCounter) {
 async function testUtilsJobsList(config: TestConfig, counter: TestCounter) {
 	printTest('Utilsジョブ一覧', 'GET /api/v1/utils/jobs');
 	const res = await request(config, 'GET', '/api/v1/utils/jobs');
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'items')) {
+	if (res.status === 200 && isRecord(body) && Array.isArray(body.items)) {
 		counter.pass('Utilsジョブ一覧', '/utils/jobs', 'items配列確認', res.bodyText);
 	} else {
 		counter.fail('Utilsジョブ一覧', '/utils/jobs', `期待200、実際: ${res.status}`, res.bodyText);
@@ -242,21 +272,25 @@ async function testJobStateTransition(config: TestConfig, counter: TestCounter) 
 	const res = await request(config, 'POST', '/api/v1/utils/metrics/resource-snapshot', {
 		timeoutMs: 5000,
 	});
+	const body = res.body;
 
-	if (res.status !== 202 || !res.body?.jobId) {
+	// 型安全なチェックに変更
+	if (res.status !== 202 || !isRecord(body) || typeof body.jobId !== 'string') {
 		counter.skip('ジョブ作成と状態遷移', 'resource-snapshot', `ジョブ作成失敗: ${res.status}`, res.bodyText);
 		return;
 	}
 
-	const jobId = res.body.jobId;
+	const jobId = body.jobId;
 	counter.pass('ジョブ作成', 'resource-snapshot', `jobId=${jobId}`, res.bodyText);
 
 	// 状態確認（少し待機）
 	await new Promise((r) => setTimeout(r, 1000));
 
 	const checkRes = await request(config, 'GET', `/api/v1/utils/jobs/${jobId}`);
-	if (checkRes.status === 200) {
-		const status = checkRes.body?.status;
+	const checkBody = checkRes.body;
+
+	if (checkRes.status === 200 && isRecord(checkBody)) {
+		const status = checkBody.status;
 		if (status === 'running' || status === 'succeeded' || status === 'queued') {
 			counter.pass('状態遷移確認', `status=${status}`, '期待される状態', checkRes.bodyText);
 		} else {
@@ -270,8 +304,9 @@ async function testJobStateTransition(config: TestConfig, counter: TestCounter) 
 async function testJobNotFound(config: TestConfig, counter: TestCounter) {
 	printTest('存在しないジョブ', 'GET /api/v1/utils/jobs/nonexistent-job-id');
 	const res = await request(config, 'GET', '/api/v1/utils/jobs/nonexistent-job-id');
+	const body = res.body;
 
-	if (res.status === 404 && hasField(res.body, 'error')) {
+	if (res.status === 404 && isRecord(body) && body.error) {
 		counter.pass('存在しないジョブ', 'nonexistent', '404 NOT_FOUND確認', res.bodyText);
 	} else {
 		counter.fail('存在しないジョブ', 'nonexistent', `期待404、実際: ${res.status}`, res.bodyText);
@@ -292,8 +327,9 @@ async function testHealth(config: TestConfig, counter: TestCounter) {
 
 	printTest('ヘルスチェック', 'GET /health');
 	const res = await request(config, 'GET', '/health', undefined, false);
+	const body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'status')) {
+	if (res.status === 200 && isRecord(body) && body.status) {
 		counter.pass('ヘルスチェック', '/health', 'status=ok確認', res.bodyText);
 	} else {
 		counter.fail('ヘルスチェック', '/health', `期待200、実際: ${res.status}`, res.bodyText);
@@ -306,8 +342,9 @@ async function testLegacyChains(config: TestConfig, counter: TestCounter) {
 	// GET /api/v1/chains
 	printTest('チェーン一覧（レガシー）', 'GET /api/v1/chains');
 	let res = await request(config, 'GET', '/api/v1/chains');
+	let body = res.body;
 
-	if (res.status === 200 && hasField(res.body, 'chains')) {
+	if (res.status === 200 && isRecord(body) && Array.isArray(body.chains)) {
 		counter.pass('チェーン一覧（レガシー）', '/chains', 'chains配列確認', res.bodyText);
 	} else {
 		counter.fail('チェーン一覧（レガシー）', '/chains', `期待200、実際: ${res.status}`, res.bodyText);
@@ -316,8 +353,9 @@ async function testLegacyChains(config: TestConfig, counter: TestCounter) {
 	// 無効なchainId
 	printTest('無効なchainId', 'GET /api/v1/chains/invalid-chain-id/info');
 	res = await request(config, 'GET', '/api/v1/chains/invalid-chain-id/info');
+	body = res.body;
 
-	if (res.status === 400 && hasField(res.body, 'error')) {
+	if (res.status === 400 && isRecord(body) && body.error) {
 		counter.pass('無効なchainId', '/chains/invalid-chain-id/info', '400確認', res.bodyText);
 	} else {
 		counter.fail('無効なchainId', '/chains/invalid-chain-id/info', `期待400、実際: ${res.status}`, res.bodyText);
@@ -329,8 +367,9 @@ async function test404(config: TestConfig, counter: TestCounter) {
 
 	printTest('存在しないエンドポイント', 'GET /api/v1/nonexistent');
 	const res = await request(config, 'GET', '/api/v1/nonexistent');
+	const body = res.body;
 
-	if (res.status === 404 && hasField(res.body, 'error')) {
+	if (res.status === 404 && isRecord(body) && body.error) {
 		counter.pass('存在しないエンドポイント', '/nonexistent', '404確認', res.bodyText);
 	} else {
 		counter.fail('存在しないエンドポイント', '/nonexistent', `期待404、実際: ${res.status}`, res.bodyText);
@@ -347,13 +386,13 @@ function showHelp() {
 	console.log('使用方法: yarn test [category...]');
 	console.log('');
 	console.log('カテゴリ:');
-	console.log('  health    - ヘルスチェック');
-	console.log('  layer1    - 第1層（System/K8s）テスト');
-	console.log('  layer2    - 第2層（Blockchain）テスト');
-	console.log('  layer3    - 第3層（Utilities）テスト');
-	console.log('  jobs      - ジョブ共通テスト');
-	console.log('  legacy    - レガシーAPIテスト');
-	console.log('  404       - 404テスト');
+	console.log('   health    - ヘルスチェック');
+	console.log('   layer1    - 第1層（System/K8s）テスト');
+	console.log('   layer2    - 第2層（Blockchain）テスト');
+	console.log('   layer3    - 第3層（Utilities）テスト');
+	console.log('   jobs      - ジョブ共通テスト');
+	console.log('   legacy    - レガシーAPIテスト');
+	console.log('   404       - 404テスト');
 	console.log('');
 	console.log('引数なしの場合、全カテゴリを実行');
 }
@@ -401,13 +440,14 @@ async function main() {
 	console.log(`${colors.reset}`);
 
 	console.log('設定:');
-	console.log(`  BASE_URL:     ${config.baseUrl}`);
-	console.log(`  CHAIN_ID:     ${config.chainId}`);
-	console.log(`  AUTH_TOKEN:   ${config.authToken ? '***' : '<未設定>'}`);
+	console.log(`   BASE_URL:     ${config.baseUrl}`);
+	console.log(`   CHAIN_ID:     ${config.chainId}`);
+	console.log(`   AUTH_TOKEN:   ${config.authToken ? '***' : '<未設定>'}`);
 
 	await checkServerConnection(config);
 
 	// テスト実行
+	// argsが文字列の配列であることをTypeScriptは知っているため、型安全にフィルタリング
 	const categories: TestCategory[] =
 		args.length > 0
 			? (args.filter((arg) => arg in testFunctions) as TestCategory[])

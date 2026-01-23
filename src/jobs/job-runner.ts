@@ -40,12 +40,14 @@ export class JobRunner {
 
     /**
      * ジョブを作成・実行開始
+     * P0-2: onBeforeRun コールバック追加（privatePayload設定用）
      */
     async createAndRun(
         scope: JobScope,
         type: string,
         request?: Record<string, unknown>,
-        timeoutMs?: number
+        timeoutMs?: number,
+        onBeforeRun?: (jobId: string) => void
     ): Promise<Job> {
         // 排他チェック（System層）
         if (scope === 'system') {
@@ -81,6 +83,11 @@ export class JobRunner {
             request,
             timeoutMs,
         });
+
+        // コールバック実行（privatePayload設定など）
+        if (onBeforeRun) {
+            onBeforeRun(job.jobId);
+        }
 
         // 非同期で実行開始
         this.runJob(job.jobId, definition, timeoutMs).catch((err) => {

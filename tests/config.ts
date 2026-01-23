@@ -25,7 +25,7 @@ export interface TestConfig {
  */
 export function getConfig(): TestConfig {
 	return {
-		baseUrl: process.env.BASE_URL || 'http://localhost:3000',
+		baseUrl: process.env.BASE_URL || 'http://localhost:4000',
 		chainId: process.env.CHAIN_ID || 'gwc',
 		testAddress: process.env.TEST_ADDRESS || 'cosmos1test123456789abcdef',
 		authToken: process.env.AUTH_TOKEN || 'your-secret-token',
